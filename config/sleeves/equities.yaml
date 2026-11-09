@@ -1,0 +1,49 @@
+# Equities sleeve (SPEC.md Section 3.1): ten ETFs, daily bars, orders
+# for next open after the US close.
+name: equities
+asset_class: equity
+decision_bar: 1d
+base_currency: USD
+paper_capital: 10000
+
+universe:
+  - symbol: SPY
+    venue: alpaca
+    base_currency: SPY
+    quote_currency: USD
+  - symbol: QQQ
+    venue: alpaca
+    base_currency: QQQ
+    quote_currency: USD
+  - symbol: IWM
+    venue: alpaca
+    base_currency: IWM
+    quote_currency: USD
+  - symbol: EFA
+    venue: alpaca
+    base_currency: EFA
+    quote_currency: USD
+  - symbol: EEM
+    venue: alpaca
+    base_currency: EEM
+    quote_currency: USD
+  - symbol: TLT
+    venue: alpaca
+    base_currency: TLT
+    quote_currency: USD
+  - symbol: IEF
+    venue: alpaca
+    base_currency: IEF
+    quote_currency: USD
+  - symbol: GLD
+    venue: alpaca
+    base_currency: GLD
+    quote_currency: USD
+  - symbol: DBC
+    venue: alpaca
+    base_currency: DBC
+    quote_currency: USD
+  - symbol: VNQ
+    venue: alpaca
+    base_currency: VNQ
+    quote_currency: USD

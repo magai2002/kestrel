@@ -1,0 +1,35 @@
+# Local dev only (Phase 0): Postgres for Alembic migrations and, from
+# Phase 2 on, the event log and trading state. Production compose lives
+# at deploy/docker-compose.prod.yml (Phase 5) and runs the engine/API
+# too.
+#
+# Port bound to 127.0.0.1 only, never 0.0.0.0 — this box also runs
+# public-facing Nginx behind UFW, and Docker's own iptables rules don't
+# consult UFW. Binding to loopback keeps every container unreachable
+# from the network regardless, independent of Docker's firewall
+# integration. See docs/adr/0003-docker-networking-on-shared-vps.md.
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kestrel
+      POSTGRES_PASSWORD: kestrel
+      POSTGRES_DB: kestrel
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - kestrel_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestrel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # `mem_limit` (legacy top-level field), not `deploy.resources.limits`:
+    # the latter only applies under Swarm on some Compose versions, and
+    # we never run Swarm. `mem_limit` is enforced by plain `docker
+    # compose up` everywhere.
+    mem_limit: 512m
+
+volumes:
+  kestrel_postgres_data:

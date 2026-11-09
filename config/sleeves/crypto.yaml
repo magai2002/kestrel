@@ -1,0 +1,39 @@
+# Crypto sleeve (SPEC.md Section 3.1).
+# Universe: BTC and ETH are required. Add others only once they're
+# confirmed available on BOTH the Binance Spot Testnet and Kraken.
+name: crypto
+asset_class: crypto
+decision_bar: 4h
+base_currency: USD # USDT is treated as USD; see docs/api-notes.md
+paper_capital: 10000
+
+# Two venue entries per asset on purpose: Binance's public bulk-data
+# dump is the only source with deep history (back to 2019), but Kraken
+# is the intended live/sim venue (Section 3.3) and its REST OHLC
+# endpoint only ever returns the most recent 720 candles, so it can
+# never backfill 2019+. Phase 0 pulls both: Binance for history, Kraken
+# for a forward-looking cross-check. A single cross-venue "logical
+# instrument" identity (so the portfolio layer doesn't care which venue
+# a bar came from) is a Phase 2 concern once order routing needs it.
+universe:
+  - symbol: BTCUSDT
+    venue: binance
+    base_currency: BTC
+    quote_currency: USDT
+  - symbol: ETHUSDT
+    venue: binance
+    base_currency: ETH
+    quote_currency: USDT
+  # Dash, not slash: the Parquet store uses Hive-style partition
+  # directories (symbol=BTC-USD), and "/" can't appear in a directory
+  # name. ccxt_ohlcv.py converts back to ccxt's "BTC/USD" unified
+  # symbol at the API boundary; this spelling is the canonical one
+  # everywhere else (store, config, logs).
+  - symbol: BTC-USD
+    venue: kraken
+    base_currency: BTC
+    quote_currency: USD
+  - symbol: ETH-USD
+    venue: kraken
+    base_currency: ETH
+    quote_currency: USD

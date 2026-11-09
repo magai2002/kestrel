@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets
+.env
+*.pem
+
+# Market data (large; fetched via `make data`, not committed)
+/data/
+
+# Research notebooks' scratch output not meant to be committed
+.ipynb_checkpoints/
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Node (web/ dashboard, Phase 6)
+node_modules/
+web/dist/
