@@ -30,6 +30,14 @@ absolute forecast near 10 — without claiming a source we can't check.
 Documented here and in ``docs/progress.md`` as a deliberate,
 scope-appropriate simplification, not an oversight.
 
+That calibration mean is a **rolling** window (``required_lookback_bars``
+wide), not a whole-series average — caught by the no-look-ahead
+property test (``tests/property/test_no_look_ahead.py``): a scalar fit
+on the *entire* series, future bars included, would leak information
+about bars that haven't happened yet into every earlier forecast. A
+single bad backtesting habit, exactly the kind property-based testing
+exists to catch rather than hand-picked examples.
+
 The same volatility estimate (EWMA of returns, ``vol_span_days``,
 ~35 by default) normalizes the raw EWMAC difference into forecast
 units *and* sizes the final vol-targeted position — one estimate, two
@@ -46,6 +54,7 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from portfolio.sizing import vol_target_weight
 from strategies.base import StrategyContext
 
 DEFAULT_SPEEDS_DAYS: tuple[tuple[int, int], ...] = ((16, 64), (32, 128), (64, 256))
@@ -92,6 +101,7 @@ def _single_instrument_weight(price: pd.Series, params: TrendVolTargetParams) ->
     returns = price.pct_change()
     pct_vol = returns.ewm(span=vol_span, min_periods=vol_span).std()
     price_vol = (pct_vol * price).replace(0.0, np.nan)
+    scalar_window = required_lookback_bars(params)
 
     speed_forecasts = []
     for fast_days, slow_days in params.speeds_days:
@@ -101,23 +111,28 @@ def _single_instrument_weight(price: pd.Series, params: TrendVolTargetParams) ->
         ewma_slow = price.ewm(span=slow_span, min_periods=slow_span).mean()
         normalized = (ewma_fast - ewma_slow) / price_vol
 
-        mean_abs = normalized.abs().mean()
-        if not mean_abs or np.isnan(mean_abs) or mean_abs == 0:
-            speed_forecasts.append(pd.Series(0.0, index=price.index))
-            continue
-        scalar = params.forecast_target / mean_abs
-        scaled = (normalized * scalar).clip(-params.forecast_cap, params.forecast_cap)
+        # Rolling, not a whole-series .mean(): a single scalar fit on
+        # the full sample (including bars after the one being scored)
+        # is a real look-ahead leak -- caught by the no-look-ahead
+        # property test (tests/property/test_no_look_ahead.py), which
+        # is exactly what that test exists to catch. A trailing window
+        # the same size as required_lookback_bars keeps this exactly
+        # consistent with the Strategy-protocol wrapper's windowed
+        # replay below, instead of merely approximately so.
+        mean_abs = normalized.abs().rolling(scalar_window, min_periods=vol_span).mean()
+        scalar = params.forecast_target / mean_abs.replace(0.0, np.nan)
+        scaled = (normalized * scalar).clip(-params.forecast_cap, params.forecast_cap).fillna(0.0)
         speed_forecasts.append(scaled)
 
     combined_forecast = pd.concat(speed_forecasts, axis=1).mean(axis=1)
     long_only_forecast = combined_forecast.clip(lower=0.0)
 
     annualized_vol = pct_vol * math.sqrt(params.periods_per_year)
-    vol_target_weight = (params.target_vol_annual / annualized_vol).replace(
-        [np.inf, -np.inf], np.nan
-    )
+    # Shared with the event-driven engine's per-bar sizing --
+    # portfolio.sizing.vol_target_weight, not a duplicated formula.
+    sized_weight = vol_target_weight(params.target_vol_annual, annualized_vol)
 
-    position_weight = (long_only_forecast / params.forecast_target) * vol_target_weight
+    position_weight = (long_only_forecast / params.forecast_target) * sized_weight
     return position_weight.clip(0.0, 1.0).fillna(0.0)
 
 

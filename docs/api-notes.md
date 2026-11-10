@@ -98,6 +98,42 @@ README (SPEC.md Section 0, rule 3: "never guess at external APIs").
   regardless of which convention turns out to be true. Revisit once
   real data has been fetched — see `docs/progress.md`.
 
+## Kraken fees (verified during Phase 2, for `execution/costs.py`)
+
+**Kraken's current entry-tier (Tier 1, $0+ 30-day volume) spot fees are
+0.40% maker / 0.80% taker** — fetched directly from Kraken's live Pro
+fee schedule while building the cost model. The spec's Section 6.1
+table assumed 0.25% maker / 0.40% taker, exactly double the real
+current rate. Fee schedules move; this is exactly why rule 3 says
+verify rather than trust a number already in a document, even one
+written as part of this project's own spec. `execution/costs.py`'s
+`CostModel` default uses the verified 0.80% taker rate (Phase 2's order
+manager only ever generates marketable/taker orders — see that
+module's docstring for why maker isn't modeled).
+
+Full tier table (for whenever volume-tiered fee modeling matters):
+Tier 2 ($2.5K+) 0.30%/0.60%, down to Tier 17 ($500M+) 0.00%/0.05%. Not
+transcribed in code — one entry-tier default is enough for a $10,000
+paper sleeve that will never reach Tier 2 volume.
+
+## Alpaca commissions (verified during Phase 2, for `execution/costs.py`)
+
+**Confirmed commission-free**, from Alpaca's own commission
+disclosure: "self-directed individual cash brokerage accounts that
+trade U.S.-listed securities... through an API" (this project's exact
+shape) pay no commission. "Relevant regulatory fees may apply" — the
+standard tiny SEC/FINRA pass-through every US broker charges on equity
+trades, not Alpaca-specific; small enough not to model as a separate
+line item.
+
+**Not confirmed**: whether funding or trading from a non-USD (e.g.
+Belgian/EUR) account carries an FX fee. Alpaca's full Brokerage Fee
+Schedule document (linked from their disclosures) wasn't reachable to
+check during Phase 2. `execution/costs.py`'s equities `CostModel`
+configuration models this as zero — flagged here as the one piece of
+the cost model that's an assumption, not a verified fact, pending
+either reaching that document or asking Alpaca support directly.
+
 ## Alembic / environment scripts
 
 Alembic's `migrations/env.py` is the one place in this repo that

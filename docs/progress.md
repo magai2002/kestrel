@@ -1,5 +1,130 @@
 # Progress
 
+## Phase 2: Event-driven engine, costs, sizing, risk checks — done
+
+Built straight after Phase 1 in the same session, per your go-ahead.
+`kestrel backtest trend_vol_target --sleeve crypto` runs end to end on
+the real BTC/ETH history and writes the event log to Postgres —
+Phase 2's literal "done when." All four Section 11 testing layers this
+phase calls for pass: property (no-look-ahead, order-manager
+convergence, risk limits never exceeded), parity (event engine vs.
+vectorized backtester), golden (frozen fixture, stored hash), and unit.
+
+### What's built
+
+- **`core/`** additions: `Order`/`Fill`/`Position` (immutable value
+  objects; a status change is `dataclasses.replace`, not a mutation —
+  matches the event log's append-only philosophy), `Clock`
+  (`SimClock`/`WallClock`), `Event`/`EventType`/`write_events`
+  (`event_log.py` — deliberately placed in `core/`, not `live/` where
+  the spec's own repo layout puts an `event_log.py`, because the
+  backtest engine needs to write events before `live/` exists),
+  `reproducibility.py` (git SHA, config hash, data hash — design rule 8).
+- **`data/sources/binance_exchange_info.py`**: real tick size, step
+  size and minimum notional from Binance's public `exchangeInfo`
+  (BTCUSDT: tick 0.01, step 0.00001, min notional $5; ETHUSDT: tick
+  0.01, step 0.0001, min notional $5 — confirmed by a live call, not
+  guessed). `kestrel data sync-instruments` upserts these into the
+  `instruments` table Phase 0 left nullable.
+- **`portfolio/`**: `sizing.py` (`vol_target_weight` — refactored out
+  of `TrendVolTarget` so the event engine's per-bar sizing and the
+  vectorized strategy share one formula, not two; dual-mode on a
+  scalar or a `pd.Series`), `construction.py` (weight → `Decimal`
+  quantity, rounded down to step size — this is the exact line in the
+  codebase where float signal maths becomes Decimal money, design rule 4).
+- **`risk/`**: `limits.py` (config), `pre_trade.py` (weight cap, group
+  cap, gross exposure, max order notional, price band, lot/min-notional
+  — first breach wins), `kill_switch.py` (daily loss, drawdown; the
+  other four kill switches in spec Section 6.3 — stale data,
+  reconciliation, error burst, clock drift — are live-venue concepts
+  with no venue yet, Phase 4).
+- **`execution/`**: `costs.py` and `fills.py` (market fills wired into
+  the order manager; passive-limit fills built and tested but not
+  wired in — Phase 4's price-protected live path is what needs them),
+  `brokers/sim.py`, `order_manager.py` (diff-based; a partial fill just
+  shrinks next bar's proposed gap, no special-casing needed).
+- **`backtest/engine.py`**: the full event-driven loop. Fills lag
+  decisions by exactly one bar by construction (see `CLAUDE.md`'s
+  Conventions for the precise mechanics) — the easiest place to
+  silently reintroduce look-ahead, so it's structural, not a runtime check.
+
+### Two real bugs this phase's testing caught (not hypothetical)
+
+1. **A genuine look-ahead leak**, caught by the no-look-ahead property
+   test, not a hand-picked example: `TrendVolTarget`'s forecast-scaling
+   scalar was computed as `normalized.abs().mean()` — a **whole-series**
+   mean. On a backtest, that mean includes bars that haven't happened
+   yet relative to any earlier bar being scored, so every early
+   forecast was quietly calibrated using future data. Fixed by making
+   it a rolling window the same size as the strategy's own lookback
+   requirement (`required_lookback_bars`) — causal by construction, and
+   it also tightened the `on_bar` vs. `compute_weights` parity tolerance
+   as a side effect (both paths now agree on the same finite window,
+   not an approximately-converged one).
+2. **A rounding-noise bug that rejected 1731 of 1754 proposed orders**
+   in the first real end-to-end run. When a bar was within the
+   position-buffer zone (i.e. "don't trade"), the engine was
+   reconstructing a target quantity from the current *implied weight*
+   (itself derived from the held quantity) instead of just keeping the
+   held quantity as-is. That round trip (quantity → weight → quantity)
+   isn't exactly idempotent after Decimal rounding, so it manufactured
+   a spurious few-step difference from held on nearly every bar —
+   proposed as an order, rejected for being under Binance's $5 minimum
+   notional, every time. Fixed by branching on
+   `portfolio.sizing.should_trade` directly and keeping the exact held
+   quantity when not trading. Re-running after the fix: 23 orders
+   proposed, 23 filled, 0 rejected.
+
+### The real backtest run
+
+`kestrel backtest trend_vol_target --sleeve crypto`, full stored
+BTC/ETH history (2022-07-09 → 2026-11-01, 9,455 four-hour bars):
+
+```
+CAGR:            +11.4%
+Annualised vol:  31.7%
+Sharpe:          0.50
+Sortino:         0.70
+Max drawdown:    -48.3% (2,341 bars to recover)
+Turnover:        0.14%/bar
+Orders:          23 (23 filled, 0 rejected)
+KILL SWITCH TRIPPED: daily loss -3.5% exceeds limit 3.0%
+```
+
+**Worth flagging, not quietly working around**: the daily-loss kill
+switch trips on 2023-11-16 — about 16 months into the run — on a
+single day's -3.5% move, which is an unremarkable magnitude for BTC/ETH
+on a 4h-bar sleeve. Per spec Section 6.3 (and Phase 2's deliberate
+scope), a tripped kill switch **stays tripped until reset by hand**,
+and the hand-reset admin CLI doesn't exist until later — so this one
+run spends its remaining ~3 years (6,482 of 9,455 bars, 69%) riding a
+frozen position, not trading. The 3% daily-loss default is the spec's
+own suggested number (Section 6.3), used as-is here; this backtest is
+evidence that it may be tighter than a real crypto sleeve can run with
+for long unattended stretches without Phase 4's reset mechanism in
+place. Not changed unilaterally — loosening a safety default to make a
+demo run longer is exactly the kind of judgment call this project's
+own rules want flagged to you, not made silently. Worth deciding
+once Phase 4 (or Phase 3's validation sweep) is in view.
+
+### Judgment calls worth flagging
+
+- **Kraken's real current entry-tier fee is 0.40% maker / 0.80%
+  taker**, verified live — double the spec's assumed 0.25%/0.40%.
+  `execution/costs.py` uses the verified number. See `docs/api-notes.md`.
+- Only market/marketable orders are wired into the order manager;
+  passive limits exist in `execution/fills.py` (tested) but aren't used
+  until Phase 4's price-protected live path needs them.
+- Kill-switch state and reconciliation are in-memory for this backtest
+  path, not persisted to the `kill_switch_state` table — Postgres
+  persistence matters once a live runner needs to recover state across
+  a restart (Phase 4), not for a single backtest process.
+- Every instrument in one `run_backtest` call must share an identical
+  bar grid (same `open_time` values) — a deliberate Phase 2 scope
+  limit; nothing resamples or aligns mismatched calendars yet.
+
+---
+
 ## Phase 1: Research toolkit and first strategies — done
 
 Built without waiting on Alpaca keys, per your go-ahead; the one piece

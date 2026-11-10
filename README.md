@@ -10,27 +10,36 @@ The full pitch — live dashboard, results table, "what I learned" — is
 a Phase 6 deliverable and doesn't exist yet. What's below is an honest
 account of what's actually built right now.
 
-## Status: Phase 0 (scaffold + data layer) done
+## Status: Phases 0–2 done (scaffold, research toolkit, event-driven engine)
 
 See [docs/progress.md](docs/progress.md) for the full, unvarnished
-rundown — including the real crypto backfill that ran, the data-quality
-issues it surfaced, and what's still blocked. Short version:
+rundown — including the real crypto backfill and backtest runs, the
+data-quality issues and bugs they surfaced, and what's still blocked.
+Short version:
 
-- Project scaffold (`uv`, `ruff`, `mypy --strict` on `core/`, `pytest`,
-  pre-commit, CI), `Settings`, per-sleeve config, core domain types.
-- Data layer: Binance bulk-kline backfill (BTC/ETH, 2019 →), a Kraken
-  live/sim cross-check feed via ccxt, and an Alpaca adjusted-daily-bars
-  fetcher for the ten-ETF equities sleeve. Parquet storage (DuckDB
-  reader) plus a validation report (gaps, duplicates, outliers,
-  bar-grid alignment).
-- Local Postgres + an Alembic baseline migration.
-- **Blocked:** the equities backfill needs a free Alpaca paper-account
-  API key, not yet supplied.
+- **Phase 0** — scaffold (`uv`, `ruff`, `mypy --strict` on `core/`,
+  pre-commit, CI), `Settings`, per-sleeve config, core domain types,
+  venue data fetchers (Binance, Kraken, Alpaca), Parquet storage,
+  validation, local Postgres + Alembic. **Blocked:** the equities
+  backfill needs a free Alpaca paper-account API key, not yet supplied.
+- **Phase 1** — `research/stats.py` (every metric, hand-tested),
+  the vectorized backtester, all five strategies from the spec (each
+  with a vectorized form and an event-driven `on_bar` form), and
+  `notebooks/01_first_look.ipynb` run end to end on real BTC data.
+- **Phase 2** — the full event-driven engine: cost/fill models, a
+  `SimBroker`, a diff-based idempotent order manager, pre-trade risk
+  checks, kill switches (daily loss, drawdown), and the Postgres event
+  log. `kestrel backtest trend_vol_target --sleeve crypto` runs on the
+  real BTC/ETH history end to end. No-look-ahead, order-manager
+  convergence and risk-limit property tests, a parity test against the
+  vectorized backtester, and a golden-hash regression test all pass —
+  see `docs/progress.md` for two real bugs those caught before they
+  became silent wrong answers.
 
-Everything from here (research toolkit, the event-driven backtest
-engine, validation pipeline, paper trading, observability, the public
-dashboard, and — only if explicitly unlocked later — real money) is
-unbuilt. The full phase plan is [docs/SPEC.md](docs/SPEC.md) Section 12.
+Everything from here (the validation pipeline with DSR/PBO, paper
+trading, observability, the public dashboard, and — only if explicitly
+unlocked later — real money) is unbuilt. The full phase plan is
+[docs/SPEC.md](docs/SPEC.md) Section 12.
 
 ## Why build this
 
@@ -77,28 +86,34 @@ flowchart LR
 ```sh
 git clone git@github.com:magai2002/kestrel.git && cd kestrel
 make setup                           # uv sync + pre-commit install
-make test                            # unit tests (92% on core/config/data)
-make typecheck                       # mypy --strict on core/
+make test                            # unit + property + parity + golden tests
+make typecheck                       # mypy --strict on core/, execution/, risk/
 
 make up && make migrate              # local Postgres + Alembic baseline
 make data-crypto                     # real Binance/Kraken backfill, no keys needed
 make data-equities                   # needs KESTREL_ALPACA_* in .env, see .env.example
 make data-validate                   # print the validation report
+
+make sync-instruments                # real tick/step/min-notional from Binance
+make backtest                        # kestrel backtest trend_vol_target --sleeve crypto
 ```
 
 A one-command `make demo` that runs a backtest on a committed data
 sample from a fresh clone is a Phase 6 deliverable, once there's a
-backtest to run.
+dashboard/results story to show alongside it.
 
 ## Repo layout
 
 See [docs/SPEC.md](docs/SPEC.md) Section 4.2 for the full intended
-layout. What exists today: `core/` (domain types), `config/`
-(`Settings`, per-sleeve YAML), `data/` (venue fetchers, Parquet store,
-validation), `cli.py`, `migrations/` (Alembic), `tests/`.
-`strategies/`, `portfolio/`, `risk/`, `execution/`, `backtest/`,
-`research/`, `live/`, `api/`, `observability/` and `web/` arrive with
-the phases that need them.
+layout. What exists today: `core/` (domain types: `Instrument`, `Bar`,
+`Order`, `Fill`, `Position`, events, `Clock`), `config/` (`Settings`,
+per-sleeve YAML), `data/` (venue fetchers, Parquet store, validation),
+`research/` (metrics, vectorized backtester), `strategies/` (all five
+from the spec), `portfolio/` (sizing, construction), `risk/`
+(pre-trade checks, kill switches), `execution/` (costs, fills,
+`SimBroker`, order manager), `backtest/` (the event-driven engine),
+`cli.py`, `migrations/` (Alembic), `tests/`. `live/`, `api/`,
+`observability/` and `web/` arrive with the phases that need them.
 
 ## Docs
 

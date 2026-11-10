@@ -1,4 +1,4 @@
-.PHONY: setup lint fmt typecheck test up down migrate data data-crypto data-equities data-validate ci
+.PHONY: setup lint fmt typecheck test up down migrate data data-crypto data-equities data-validate sync-instruments backtest ci
 
 UV := uv
 
@@ -15,7 +15,7 @@ fmt:
 	$(UV) run ruff check --fix .
 
 typecheck:
-	$(UV) run mypy core config data strategies research cli.py
+	$(UV) run mypy core config data strategies research portfolio risk execution backtest cli.py
 
 test:
 	$(UV) run pytest
@@ -42,5 +42,12 @@ data-validate:
 ## Phase 0's "done when": fetch BTC/ETH from 2019 + the ten ETFs from
 ## 2016, write Parquet, print a validation report.
 data: data-crypto data-equities data-validate
+
+sync-instruments:
+	$(UV) run kestrel data sync-instruments
+
+## Phase 2's "done when": prints a results summary and writes the event log.
+backtest:
+	$(UV) run kestrel backtest trend_vol_target --sleeve crypto
 
 ci: lint typecheck test
