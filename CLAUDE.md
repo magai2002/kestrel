@@ -27,6 +27,14 @@ make data             # all three, in order — Phase 0's "done when" check
 Single test: `uv run pytest tests/unit/data/test_store.py -v`
 Single command directly: `uv run kestrel data validate`
 
+Re-run the Phase 1 notebook (e.g. after `make data-equities` finally has
+SPY data) and commit the new outputs — don't hand-edit the `.ipynb`:
+
+```sh
+uv sync --group notebooks   # jupyter/nbclient/matplotlib; not in the main dep list
+uv run jupyter execute --inplace notebooks/01_first_look.ipynb
+```
+
 ## Conventions
 
 - **No module-level reads of `os.environ`.** One `Settings` object
@@ -65,6 +73,19 @@ Single command directly: `uv run kestrel data validate`
   pull a real response/file and inspect it (see `docs/api-notes.md` for
   why — Binance's bulk-data timestamp unit isn't documented anywhere
   and silently changed between 2019 and 2025 files).
+- **Every strategy module exposes three things that must agree**: a
+  pydantic params schema, a vectorized `compute_weights(prices, params)
+  -> pd.DataFrame` (Phase 1; `research/vectorized.py` and later Phase
+  3's walk-forward grid search), and a `Strategy`-protocol class with
+  `on_bar(ctx) -> dict[str, float]` (Phase 2's event engine). See
+  `strategies/base.py` for the convention and which strategies can get
+  away with `on_bar` just replaying `compute_weights` over a trailing
+  window (most of them) vs. needing real incremental state
+  (`BuyAndHold`, `ShortTermMeanReversion` — truncating their history
+  would silently change the answer).
+- **Don't hand-edit `notebooks/*.ipynb`.** Edit the generator script
+  pattern (rebuild cells, re-run `jupyter execute --inplace`) so the
+  committed outputs always match the committed source exactly.
 
 ## Where things live
 

@@ -41,7 +41,7 @@ jobs:
           uv run ruff format --check .
 
       - name: Type check (mypy)
-        run: uv run mypy core config data cli.py
+        run: uv run mypy core config data strategies research cli.py
 
       - name: Run Alembic migrations
         run: uv run alembic upgrade head

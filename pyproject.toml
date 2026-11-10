@@ -9,6 +9,7 @@ dependencies = [
     "pydantic-settings>=2.6",
     "pyyaml>=6.0",
     "pandas>=2.2",
+    "numpy>=2.0",
     "pyarrow>=17.0",
     "duckdb>=1.1",
     "httpx>=0.27",
@@ -37,6 +38,16 @@ dev = [
     "time-machine>=2.16",
     "pandas-stubs>=2.2",
     "types-pyyaml>=6.0",
+]
+# Phase 1's notebooks/01_first_look.ipynb needs these to execute; not
+# needed by the engine/API/CLI at runtime, so kept out of the main
+# dependency list.
+notebooks = [
+    "jupyter>=1.1",
+    "nbclient>=0.10",
+    "nbformat>=5.10",
+    "ipykernel>=6.29",
+    "matplotlib>=3.9",
 ]
 
 [build-system]
@@ -92,4 +103,4 @@ markers = [
 addopts = "-m 'not integration'"
 
 [tool.coverage.run]
-source = ["core", "config", "data"]
+source = ["core", "config", "data", "research", "strategies"]

@@ -15,7 +15,7 @@ fmt:
 	$(UV) run ruff check --fix .
 
 typecheck:
-	$(UV) run mypy core config data cli.py
+	$(UV) run mypy core config data strategies research cli.py
 
 test:
 	$(UV) run pytest
