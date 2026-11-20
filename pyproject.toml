@@ -20,6 +20,8 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.13",
     "psycopg[binary]>=3.2",
+    "ib-async>=2.0",
+    "prometheus-client>=0.21",
 ]
 
 [project.scripts]
@@ -60,6 +62,16 @@ include = [
     "core",
     "config",
     "data",
+    "strategies",
+    "research",
+    "portfolio",
+    "risk",
+    "execution",
+    "backtest",
+    "live",
+    "observability",
+    "api",
+    "migrations",
     "cli.py",
 ]
 
@@ -97,9 +109,9 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "integration: real network calls to a live venue (Binance Spot Testnet, Alpaca paper); opt-in via -m integration",
+    "integration: real network calls to a venue (Binance Spot Testnet, Kraken/Yahoo public, IBKR paper gateway); opt-in via -m integration",
 ]
 addopts = "-m 'not integration'"
 
 [tool.coverage.run]
-source = ["core", "config", "data", "research", "strategies", "portfolio", "risk", "execution", "backtest"]
+source = ["core", "config", "data", "research", "strategies", "portfolio", "risk", "execution", "backtest", "live", "observability"]

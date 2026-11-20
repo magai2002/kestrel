@@ -23,10 +23,22 @@ make data-equities  # Yahoo daily backfill: 10 US research ETFs + their UCITS tw
 make data-validate  # print a validation report for everything in the store
 make data             # all three, in order — Phase 0's "done when" check
 
-make sync-instruments  # fetch real tick/step/min-notional from Binance into the instruments table
+make sync-instruments  # tick/step/min-notional for Binance, Kraken, Binance testnet (public, no keys)
 make backtest            # kestrel backtest trend_vol_target --sleeve crypto -- Phase 2's "done when" check
 make validate            # kestrel validate all --sleeve all -- Phase 3; writes reports/<run_id>/report.{html,json}
+
+uv run kestrel run --mode sim --once          # one catch-up cycle per sleeve, real prices, then exit
+uv run kestrel run --mode sim                 # the live loop (sandbox needs testnet keys + IB Gateway)
+uv run kestrel admin status                   # heartbeat, last bar, positions, tripped kill switches
+uv run kestrel admin reset-kill-switch --mode sim --sleeve crypto --name all
+uv run kestrel ibkr contracts                 # qualify UCITS twins against a running IB Gateway
+uv run pytest -m integration                  # opt-in real-network venue checks
 ```
+
+Tests: `tests/unit/live/live_helpers.py` and `tests/contract/venue_fakes.py`
+are imported by bare module name, because test dirs have **no
+`__init__.py`** on purpose: a `tests/unit/live/__init__.py` would make
+`live` resolve to the test package and shadow the real `live/` package.
 
 **Never pass `--holdout` to `kestrel validate` casually.** Each
 strategy/sleeve's hold-out may be evaluated once; every access is
@@ -62,6 +74,19 @@ and formatting *before* executing keeps outputs matching the source.)
   (prices aligned on one grid, instruments, cost models, strategy params
   with `bars_per_day`/`periods_per_year` filled in), so `backtest`,
   `validate` and the live shadow backtest can't drift apart.
+- **The decision step lives in exactly one place:
+  `portfolio/rebalance.py::plan_rebalance`**, called by the backtest
+  engine *and* the live runner. Never re-implement buffering, sizing or
+  risk inline in either; `tests/unit/live/test_replay_parity.py` checks
+  that live `sim` reproduces the backtest exactly.
+- **Live orders: journal before you send.** `execution/live_execution.py`
+  writes an `intent` row (via `Journal`) before every network call and
+  looks the client id up at the venue before placing or retrying. A
+  `TransientBrokerError` means "unknown", never "failed". Venue client
+  ids are UUIDv5 of our readable id (`execution/brokers/client_ids.py`);
+  never change `KESTREL_NAMESPACE`.
+- **`live` mode is locked** (`live/gates.py`) until Phase 7's gates. The
+  Kraken/IBKR-live adapters must stay unconstructable outside that path.
 - **Target weights go through `portfolio/constraints.py` before orders**:
   clip per instrument, scale groups and gross *down*. Pre-trade risk
   checks are the last-line guard; if they reject a weight/group/gross
@@ -134,13 +159,11 @@ and formatting *before* executing keeps outputs matching the source.)
   that run). `backtest/engine.py` now branches on
   `portfolio.sizing.should_trade` directly instead of going through
   `buffered_target`'s returned weight for the "don't trade" case.
-- **The risk-pre-trade / kill-switch / order-manager split only
-  computes what a backtest can know.** `risk/kill_switch.py` only
-  implements daily-loss and drawdown (the other four — stale data,
-  reconciliation mismatch, error burst, clock drift — are live-venue
-  concepts with no venue to speak of yet, Phase 4). `execution/
-  order_manager.py`'s restart-recovery lookup isn't built for the same
-  reason: nothing to recover from without a live broker.
+- **Kill switches never reset themselves.** Six of them (`risk/kill_switch.py`
+  pure checks; persisted in `kill_switch_state`). Trip -> cancel open
+  orders -> ntfy alert -> halted until `kestrel admin reset-kill-switch`.
+  Default on trip is cancel-and-hold (ADR 0005). The backtest engine
+  still only evaluates daily loss and drawdown, in memory.
 
 ## Where things live
 
@@ -181,15 +204,25 @@ and formatting *before* executing keeps outputs matching the source.)
 - `risk/` — `limits.py` (config), `pre_trade.py` (per-order checks,
   first-breach-wins), `kill_switch.py` (daily loss, drawdown only —
   see Conventions above for why not the other four).
-- `execution/` — `costs.py` (commission/spread/slippage/TOB — see
-  `docs/api-notes.md` for the verified Kraken/Alpaca fee facts),
-  `fills.py` (market + passive-limit fill models; only market is wired
-  into the order manager), `brokers/sim.py` (the only `Broker` so
-  far), `order_manager.py` (diff-based, idempotent client order IDs).
+- `execution/` — `costs.py` (commission incl. per-order minimum, spread,
+  slippage, TOB), `fills.py` (fill models for `SimBroker`),
+  `order_manager.py` (diff-based, deterministic client ids),
+  `live_execution.py` (marketable limit + timeout + re-quote),
+  `brokers/` (`base.py` protocols, `sim.py`, `ccxt_spot.py` +
+  `binance_testnet.py`/`kraken.py`, `ibkr.py`, `fake.py` fault-injecting
+  venue, `client_ids.py`).
+- `live/` — `sleeve_runner.py` (one cycle), `runner.py` (scheduler; the
+  only real-time code), `build.py` (mode -> feed/broker), `feeds.py`,
+  `state.py` (Postgres state + in-memory twin), `reconcile.py`,
+  `schedule.py`, `gates.py`, `commands.py` (`run`/`admin`/`ibkr` CLI).
+- `observability/` — `logging.py` (structlog JSON), `alerts.py` (ntfy,
+  rate-limited), `metrics.py` (Prometheus, spec Section 9 names).
 - `backtest/` — `engine.py` (the event-driven loop), `results.py`
   (`BacktestResults` + its `format_summary()`).
-- `migrations/` — Alembic; `core/orm.py`'s models: `instruments`
-  (Phase 0) and `event_log` (Phase 2) so far.
+- `migrations/` — Alembic; `core/orm.py`'s models: `instruments`,
+  `event_log` (+`mode`), Phase 3's `trial_ledger`/`holdout_access`/
+  `validation_reports`/`backtest_runs`, Phase 4's `orders`/`fills`/
+  `sleeve_state`/`equity_snapshots`/`positions_snapshots`/`kill_switch_state`.
 - `tests/fixtures/binance/` — two real downloaded sample rows (2019 ms,
   2025 µs) used as ground truth for the timestamp-unit detection test.
 - `tests/property/` — hypothesis tests for the three Section 11

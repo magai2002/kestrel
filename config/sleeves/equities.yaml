@@ -43,43 +43,43 @@ x-ibkr-lse-acc: &ibkr_acc
 assets:
   - id: SPY
     research: { venue: yahoo, symbol: SPY, base_currency: SPY, quote_currency: USD, calendar: NYSE }
-    live: { venue: ibkr, symbol: VUSD, exchange: LSEETF, base_currency: VUSD, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: VUSD.L }
+    live: { venue: ibkr, symbol: VUSD, exchange: LSEETF, base_currency: VUSD, quote_currency: USD, calendar: LSE, step_size: "1", backfill_venue: yahoo, backfill_symbol: VUSD.L }
     costs: { <<: *ibkr_dist, spread_bps: "5", notes: "Vanguard S&P 500 UCITS (Dist)" }
   - id: QQQ
     research: { venue: yahoo, symbol: QQQ, base_currency: QQQ, quote_currency: USD, calendar: NYSE }
-    live: { venue: ibkr, symbol: EQQU, exchange: LSEETF, base_currency: EQQU, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: EQQU.L }
+    live: { venue: ibkr, symbol: EQQU, exchange: LSEETF, base_currency: EQQU, quote_currency: USD, calendar: LSE, step_size: "1", backfill_venue: yahoo, backfill_symbol: EQQU.L }
     costs: { <<: *ibkr_dist, spread_bps: "8", notes: "Invesco EQQQ Nasdaq-100 UCITS (Dist)" }
   - id: IWM
     research: { venue: yahoo, symbol: IWM, base_currency: IWM, quote_currency: USD, calendar: NYSE }
-    live: { venue: ibkr, symbol: R2US, exchange: LSEETF, base_currency: R2US, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: R2US.L }
+    live: { venue: ibkr, symbol: R2US, exchange: LSEETF, base_currency: R2US, quote_currency: USD, calendar: LSE, step_size: "1", backfill_venue: yahoo, backfill_symbol: R2US.L }
     costs: { <<: *ibkr_acc, spread_bps: "15", notes: "SPDR Russell 2000 UCITS (Acc) — no Dist USD line found" }
   - id: EFA
     research: { venue: yahoo, symbol: EFA, base_currency: EFA, quote_currency: USD, calendar: NYSE }
-    live: { venue: ibkr, symbol: EXUS, exchange: LSEETF, base_currency: EXUS, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: EXUS.L }
+    live: { venue: ibkr, symbol: EXUS, exchange: LSEETF, base_currency: EXUS, quote_currency: USD, calendar: LSE, step_size: "1", backfill_venue: yahoo, backfill_symbol: EXUS.L }
     costs: { <<: *ibkr_acc, spread_bps: "15", notes: "Xtrackers MSCI World ex USA (Acc) — includes Canada, EAFE doesn't; listed 2024" }
   - id: EEM
     research: { venue: yahoo, symbol: EEM, base_currency: EEM, quote_currency: USD, calendar: NYSE }
-    live: { venue: ibkr, symbol: IDEM, exchange: LSEETF, base_currency: IDEM, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: IDEM.L }
+    live: { venue: ibkr, symbol: IDEM, exchange: LSEETF, base_currency: IDEM, quote_currency: USD, calendar: LSE, step_size: "1", backfill_venue: yahoo, backfill_symbol: IDEM.L }
     costs: { <<: *ibkr_dist, spread_bps: "10", notes: "iShares MSCI EM UCITS (Dist) — same index as EEM" }
   - id: TLT
     research: { venue: yahoo, symbol: TLT, base_currency: TLT, quote_currency: USD, calendar: NYSE }
-    live: { venue: ibkr, symbol: IDTL, exchange: LSEETF, base_currency: IDTL, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: IDTL.L }
+    live: { venue: ibkr, symbol: IDTL, exchange: LSEETF, base_currency: IDTL, quote_currency: USD, calendar: LSE, step_size: "1", backfill_venue: yahoo, backfill_symbol: IDTL.L }
     costs: { <<: *ibkr_dist, spread_bps: "8", notes: "iShares $ Treasury 20+yr UCITS (Dist)" }
   - id: IEF
     research: { venue: yahoo, symbol: IEF, base_currency: IEF, quote_currency: USD, calendar: NYSE }
-    live: { venue: ibkr, symbol: IDTM, exchange: LSEETF, base_currency: IDTM, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: IDTM.L }
+    live: { venue: ibkr, symbol: IDTM, exchange: LSEETF, base_currency: IDTM, quote_currency: USD, calendar: LSE, step_size: "1", backfill_venue: yahoo, backfill_symbol: IDTM.L }
     costs: { <<: *ibkr_dist, spread_bps: "8", notes: "iShares $ Treasury 7-10yr UCITS (Dist)" }
   - id: GLD
     research: { venue: yahoo, symbol: GLD, base_currency: GLD, quote_currency: USD, calendar: NYSE }
-    live: { venue: ibkr, symbol: IGLN, exchange: LSEETF, base_currency: IGLN, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: IGLN.L }
+    live: { venue: ibkr, symbol: IGLN, exchange: LSEETF, base_currency: IGLN, quote_currency: USD, calendar: LSE, step_size: "1", backfill_venue: yahoo, backfill_symbol: IGLN.L }
     costs: { <<: *ibkr_dist, spread_bps: "8", notes: "iShares Physical Gold ETC — an ETC (a note), not a fund; TOB treatment UNVERIFIED, 0.12% assumed" }
   - id: DBC
     research: { venue: yahoo, symbol: DBC, base_currency: DBC, quote_currency: USD, calendar: NYSE }
-    live: { venue: ibkr, symbol: CMOD, exchange: LSEETF, base_currency: CMOD, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: CMOD.L }
+    live: { venue: ibkr, symbol: CMOD, exchange: LSEETF, base_currency: CMOD, quote_currency: USD, calendar: LSE, step_size: "1", backfill_venue: yahoo, backfill_symbol: CMOD.L }
     costs: { <<: *ibkr_acc, spread_bps: "20", notes: "Invesco Bloomberg Commodity UCITS (Acc) — different index from DBC's" }
   - id: VNQ
     research: { venue: yahoo, symbol: VNQ, base_currency: VNQ, quote_currency: USD, calendar: NYSE }
-    live: { venue: ibkr, symbol: IDUP, exchange: LSEETF, base_currency: IDUP, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: IDUP.L }
+    live: { venue: ibkr, symbol: IDUP, exchange: LSEETF, base_currency: IDUP, quote_currency: USD, calendar: LSE, step_size: "1", backfill_venue: yahoo, backfill_symbol: IDUP.L }
     costs: { <<: *ibkr_dist, spread_bps: "15", notes: "iShares US Property Yield UCITS (Dist)" }
 
 risk:
@@ -98,3 +98,16 @@ strategies:
     weight: 0.7
   - name: xs_momentum
     weight: 0.3
+
+# Live path (sandbox = IBKR paper): marketable limits 0.3% through the
+# last price (inside the 1% price band), 2 minutes to fill, then up to
+# two re-quotes. LSE USD lines are thin; a market order could fill badly.
+execution:
+  protection_bps: "30"
+  timeout_seconds: 120
+  max_requotes: 2
+
+# `sim` prices for the UCITS twins come from Yahoo (VUSD.L ...) until an
+# IB Gateway with an LSE market-data subscription is running; then set
+# this to "ibkr" so sim and sandbox see the same bars.
+sim_feed: yahoo

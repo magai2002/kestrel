@@ -1,5 +1,98 @@
 # Progress
 
+## Phase 4: Paper trading (`sim` and `sandbox`) — built; `sandbox` blocked on credentials
+
+`kestrel run --mode sim` runs both sleeves against real prices (Kraken
+public OHLC for crypto, Yahoo for the UCITS twins) with our own fill
+model. `kestrel run --mode sandbox` is fully built for the Binance Spot
+Testnet and IBKR paper, but can't start until it has credentials: see
+"what's blocked" below. The 72-hour unattended run happens on the VPS
+deployment (Phase 5).
+
+### What's built
+
+- **One decision function for every mode**: `portfolio/rebalance.py`
+  (constrain -> buffer -> quantities -> orders -> risk). The backtest
+  engine was refactored onto it; the golden hash didn't move.
+- **`live/`**:
+  - `sleeve_runner.py`: one cycle — bar confirmation, settle, reconcile,
+    mark, kill switches, decide, execute, persist.
+  - `runner.py`: the scheduler. Bar close + delay, retry until the bar
+    is published, catch-up cycle on start.
+  - `feeds.py`: Kraken, Binance testnet, Yahoo twins, IBKR. Every bar
+    consumed is persisted under its true venue.
+  - `state.py`: Postgres state (orders journal, fills deduplicated on
+    the venue fill id, sleeve state, snapshots, kill switches); new
+    migration 0004.
+  - `reconcile.py`, `schedule.py` (24/7 grid; LSE calendar with early
+    closes), `build.py` (mode -> feed/broker), `gates.py` (`live`
+    locked), `commands.py` (`run`, `admin`, `ibkr`).
+- **Brokers** behind one `LiveBroker` protocol:
+  - `ccxt_spot.py` (Binance testnet + Kraken), `ibkr.py` (`ib_async`).
+  - `fake.py`: an in-memory venue with fault injection.
+  - Kraken and IBKR-live exist and pass the contract suite but **cannot
+    be selected**: `live` raises until Phase 7.
+- **Live order path** (`execution/live_execution.py`): marketable limits
+  with price protection (20 bps crypto, 30 bps equities; config refuses
+  a protection outside the risk price band), timeout, cancel and
+  re-quote up to twice. Each attempt has its own deterministic client
+  id, sent to venues as a UUIDv5 (Binance caps ids at 36 chars), and is
+  journalled *before* it's sent.
+- **All six kill switches** (daily loss, drawdown, stale data,
+  reconciliation, error burst, clock drift). They're persisted, cancel
+  open orders, alert via ntfy (rate-limited), and stay tripped until
+  `kestrel admin reset-kill-switch`. Flatten-on-trip is implemented but
+  off ([ADR 0005](adr/0005-kill-switch-hold-vs-flatten.md)).
+- **Admin CLI**: `kestrel admin status | pause | resume |
+  reset-kill-switch | rebaseline`.
+
+### Tests that make the claims checkable
+
+- **Replay parity** (`tests/unit/live/test_replay_parity.py`): the live
+  `sim` runner, driven bar by bar through the real store, feed and
+  state machinery, reproduces the backtest engine's equity curve to
+  1e-9 over 120 bars with the same number of fills. It passed first
+  time, which is the payoff of the shared rebalance function.
+- **Adapter contract suite** (`tests/contract/`): one suite, four
+  adapters. Venue fakes return ccxt's documented unified structures,
+  and real `ib_async` `Trade`/`Fill`/`Execution` objects for IBKR.
+- **Chaos** (`tests/chaos/`): killed between send and ack, 5xx after
+  acceptance, network drop and timeouts, restart mid-bar, feed outage.
+  **Every scenario ends reconciled, no client id sent twice.** Manual
+  real-venue drills: `tests/chaos/README.md`.
+- **Opt-in integration** (`-m integration`): public Binance testnet,
+  Kraken and Yahoo checks pass from this server. The private testnet
+  and IBKR paper checks skip until credentials exist.
+
+### Bugs and design problems found this phase
+
+1. **A dead feed could never trip the stale-data switch.** The first
+   draft returned `no_new_bar` *before* judging staleness, which is
+   exactly the situation the switch exists for. Fixed, and covered by
+   `test_stale_feed_trips_stale_data_even_without_new_bars`.
+2. **Kraken's OHLC endpoint (720 bars, ~120 days at 4h) can't warm up a
+   256-day EWMA.** `sim` would have sat flat forever. The Kraken and
+   testnet listings now backfill from Binance's real history; their own
+   bars win where both exist.
+3. `prometheus_client.start_http_server` binds `0.0.0.0` by default. We
+   always pass the address explicitly (ADR 0003).
+4. `store.write_bars` overwrites a whole year's partition. Live feeds
+   now go through a new atomic `upsert_bars` (temp file + rename).
+
+### What's blocked on you
+
+- **Binance Spot Testnet keys** (GitHub login at testnet.binance.vision)
+  -> `KESTREL_BINANCE_TESTNET_API_KEY/_SECRET`.
+- **IBKR paper credentials for IB Gateway** (IBC needs your username
+  and password; Phase 5's compose file runs the gateway). After that:
+  `kestrel ibkr contracts` to verify each UCITS twin resolves to exactly
+  one contract, and **convert some paper EUR to USD**, or the cash
+  reconciliation will (correctly) trip.
+- An **IBKR market-data subscription for the LSE** decides whether
+  `sim` can use IBKR's bars (`sim_feed: ibkr`) instead of Yahoo's.
+
+---
+
 ## Phase 3: Validation pipeline — done (hold-out deliberately still locked)
 
 `kestrel validate all --sleeve all` produces a full HTML + JSON report

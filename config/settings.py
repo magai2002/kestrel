@@ -63,6 +63,7 @@ class Settings(BaseSettings):
 
     # --- service ports (all bound to 127.0.0.1; ADR 0003) ---
     metrics_port: int = 9710
+    metrics_addr: str = "127.0.0.1"  # the container sets 0.0.0.0; Compose publishes on 127.0.0.1
     api_port: int = 8710
     admin_port: int = 8711
 

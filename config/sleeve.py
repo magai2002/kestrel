@@ -55,6 +55,12 @@ class Listing(BaseModel):
     backfill_symbol: str | None = None
     # pandas_market_calendars name for session times (NYSE, LSE). None = 24/7.
     calendar: str | None = None
+    # Fallbacks used only when the instruments table has no synced
+    # metadata for this listing (e.g. IBKR before `kestrel ibkr
+    # contracts` has run): UCITS ETFs trade in whole shares.
+    step_size: Decimal | None = None
+    tick_size: Decimal | None = None
+    min_notional: Decimal | None = None
 
     @property
     def instrument_id(self) -> str:
@@ -73,9 +79,9 @@ class Listing(BaseModel):
             asset_class=asset_class,
             base_currency=self.base_currency,
             quote_currency=self.quote_currency,
-            tick_size=tick_size,
-            step_size=step_size,
-            min_notional=min_notional,
+            tick_size=tick_size if tick_size is not None else self.tick_size,
+            step_size=step_size if step_size is not None else self.step_size,
+            min_notional=min_notional if min_notional is not None else self.min_notional,
         )
 
 
@@ -153,7 +159,7 @@ class RiskConfig(BaseModel):
     error_burst_count: int = 5
     error_burst_window_minutes: int = 15
     clock_drift_seconds: float = 5.0
-    flatten_on_trip: bool = False  # ADR 0006: default is cancel-and-hold
+    flatten_on_trip: bool = False  # ADR 0005: default is cancel-and-hold
 
     def to_risk_limits(self) -> RiskLimits:
         return RiskLimits(
@@ -177,6 +183,17 @@ class StrategyAllocation(BaseModel):
     name: str
     weight: float = Field(gt=0, le=1)
     params: dict[str, object] = Field(default_factory=dict)
+
+
+class ExecutionConfig(BaseModel):
+    """Live path order handling (``execution/live_execution.py``)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    protection_bps: Decimal = Decimal("20")
+    timeout_seconds: float = 60.0
+    poll_seconds: float = 2.0
+    max_requotes: int = 2
 
 
 class LiveGateConfig(BaseModel):
@@ -214,6 +231,11 @@ class SleeveConfig(BaseModel):
     assets: list[AssetConfig]
     risk: RiskConfig = Field(default_factory=RiskConfig)
     strategies: list[StrategyAllocation] = Field(default_factory=list)
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
+    # Where `sim` reads prices: None = each live listing's own venue
+    # (Kraken for crypto); "yahoo" = the listings' Yahoo backfill symbols
+    # (equities, until an IB Gateway with an LSE data subscription runs).
+    sim_feed: str | None = None
     live_gates: LiveGateConfig = Field(default_factory=LiveGateConfig)
 
     @model_validator(mode="after")
@@ -231,6 +253,14 @@ class SleeveConfig(BaseModel):
             total = sum(s.weight for s in self.strategies)
             if abs(total - 1.0) > 1e-9:
                 raise ValueError(f"strategy weights must sum to 1, got {total}")
+        if self.sim_feed not in (None, "yahoo", "ibkr"):
+            raise ValueError(f"sim_feed must be null, 'yahoo' or 'ibkr', got {self.sim_feed!r}")
+        band_bps = Decimal(str(self.risk.price_band_pct)) * 10_000
+        if self.execution.protection_bps >= band_bps:
+            raise ValueError(
+                f"execution.protection_bps ({self.execution.protection_bps}) must be inside the "
+                f"risk price band ({band_bps} bps) or every live order would be rejected"
+            )
         return self
 
     @property

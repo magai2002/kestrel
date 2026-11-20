@@ -35,15 +35,12 @@ from core.position import Position
 from core.reproducibility import git_sha, hash_config, hash_dataframe
 from execution.brokers.sim import SimBroker
 from execution.costs import CostModel
-from execution.order_manager import propose_orders
-from portfolio.constraints import constrain_weights
-from portfolio.construction import implied_weight, target_quantity
-from portfolio.sizing import should_trade
+from portfolio.construction import implied_weight
+from portfolio.rebalance import plan_rebalance
 from research import stats as stats_module
 from risk.kill_switch import KillSwitchState
 from risk.kill_switch import evaluate as evaluate_kill_switch
 from risk.limits import RiskLimits
-from risk.pre_trade import evaluate_order
 from strategies.base import Strategy, StrategyContext
 
 
@@ -225,58 +222,36 @@ def run_backtest(
             for iid in instrument_ids
         }
         ctx = StrategyContext(history=history, now=bar_close_ts)
-        # Clip/scale to the sleeve's limits *before* sizing, so risk only
-        # rejects genuine anomalies (portfolio/constraints.py docstring).
-        target_weights = constrain_weights(strategy.on_bar(ctx), risk_limits)
-        events.append(
-            Event(run_id, sleeve_name, EventType.TARGET, bar_close_ts, {"weights": target_weights})
+        # The same decision function the live runner calls
+        # (portfolio/rebalance.py): constrain -> buffer -> quantities ->
+        # orders -> risk.
+        plan = plan_rebalance(
+            raw_target_weights=strategy.on_bar(ctx),
+            held_quantities={iid: positions[iid].quantity for iid in instrument_ids},
+            last_prices=last_prices,
+            sleeve_equity=Decimal(str(equity_now)),
+            symbols=symbols,
+            step_sizes=step_sizes,
+            min_notionals=min_notionals,
+            risk_limits=risk_limits,
+            buffer_pct=buffer_pct,
+            sleeve=sleeve_name,
+            strategy=strategy_name,
+            bar_close_ts=bar_close_ts,
         )
-
-        sleeve_equity = Decimal(str(equity_now))
-        buffered_weights: dict[str, float] = {}
-        target_quantities: dict[str, Decimal] = {}
-        held_quantities: dict[str, Decimal] = {}
-        for iid in instrument_ids:
-            held_qty = positions[iid].quantity
-            current_weight = implied_weight(held_qty, last_prices[iid], sleeve_equity)
-            raw_target = target_weights.get(iid, 0.0)
-            if should_trade(current_weight, raw_target, buffer_pct):
-                buffered_weights[iid] = raw_target
-                target_quantities[iid] = target_quantity(
-                    raw_target, sleeve_equity, last_prices[iid], step_sizes[iid]
-                )
-            else:
-                # Not trading: keep the EXACT held quantity, not a
-                # quantity reconstructed from current_weight (a float
-                # derived from held_qty). That round trip isn't exactly
-                # idempotent after Decimal rounding, so reconstructing
-                # it was producing a spurious few-step difference from
-                # held every bar -- proposed as an order, then rejected
-                # for being below minimum notional, forever. Found by
-                # running the real engine on real BTC/ETH data: 1731 of
-                # 1754 proposed orders were exactly this, not a genuine
-                # risk breach.
-                buffered_weights[iid] = current_weight
-                target_quantities[iid] = held_qty
-            held_quantities[iid] = positions[iid].quantity
-
-        proposed = propose_orders(
-            target_quantities, held_quantities, symbols, sleeve_name, strategy_name, bar_close_ts
+        events.append(
+            Event(
+                run_id,
+                sleeve_name,
+                EventType.TARGET,
+                bar_close_ts,
+                {"weights": plan.target_weights},
+            )
         )
 
         approved_orders = []
-        for order in proposed:
+        for order, decision in plan.decisions:
             n_orders += 1
-            decision = evaluate_order(
-                order=order,
-                reference_price=last_prices[order.instrument_id],
-                step_size=step_sizes[order.instrument_id],
-                min_notional=min_notionals[order.instrument_id],
-                proposed_weights=buffered_weights,
-                sleeve_equity=sleeve_equity,
-                last_trade_price=last_prices[order.instrument_id],
-                limits=risk_limits,
-            )
             events.append(
                 Event(
                     run_id,

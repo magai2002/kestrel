@@ -24,7 +24,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, Numeric, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, Numeric, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -58,6 +58,8 @@ class EventLogRecord(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     sleeve: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    # backtest | sim | sandbox | live (Phase 4). Nullable: Phase 2 rows predate it.
+    mode: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     event_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -146,3 +148,130 @@ class BacktestRunRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# --- Phase 4: live trading state ------------------------------------------
+# Every table is keyed by (mode, sleeve): `sim` and `sandbox` run side by
+# side against the same database (spec Section 3.2) and must never see
+# each other's state.
+
+
+class OrderRecord(Base):
+    """One row per order *attempt* (each re-quote has its own client id).
+    Written with status ``intent`` *before* the network call, so a crash
+    mid-send leaves evidence to recover from (``live/recovery.py``)."""
+
+    __tablename__ = "orders"
+
+    client_order_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(16), primary_key=True)
+    sleeve: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    asset_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    venue: Mapped[str] = mapped_column(String(32), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    limit_price: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    decision_price: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    broker_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    filled_quantity: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False, default=0)
+    avg_fill_price: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    bar_close_ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    last_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class FillRecord(Base):
+    """Append-only. ``(mode, venue_fill_id)`` is unique, so re-reading an
+    order's fills after a restart can never double-count one."""
+
+    __tablename__ = "fills"
+    __table_args__ = (
+        UniqueConstraint("mode", "venue_fill_id", name="uq_fills_mode_venue_fill_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    sleeve: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    client_order_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    venue_fill_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    asset_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    fee: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    decision_price: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class SleeveStateRecord(Base):
+    """The runner's durable working state for one (mode, sleeve): ledger
+    cash and positions, peak/day-open equity, broker baseline, pending
+    sim orders, admin pause flag. Rewritten at the end of every cycle."""
+
+    __tablename__ = "sleeve_state"
+
+    mode: Mapped[str] = mapped_column(String(16), primary_key=True)
+    sleeve: Mapped[str] = mapped_column(String(32), primary_key=True)
+    state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class EquitySnapshotRecord(Base):
+    __tablename__ = "equity_snapshots"
+    __table_args__ = (
+        UniqueConstraint("mode", "sleeve", "timestamp", name="uq_equity_mode_sleeve_ts"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    sleeve: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    equity: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    cash: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    equity_index: Mapped[float] = mapped_column(Float, nullable=False)  # 100 at start
+    drawdown: Mapped[float] = mapped_column(Float, nullable=False)
+    gross_exposure: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class PositionsSnapshotRecord(Base):
+    __tablename__ = "positions_snapshots"
+    __table_args__ = (
+        UniqueConstraint("mode", "sleeve", "timestamp", name="uq_positions_mode_sleeve_ts"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    sleeve: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    positions: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False
+    )  # asset -> qty/price/weight
+
+
+class KillSwitchRecord(Base):
+    __tablename__ = "kill_switch_state"
+
+    mode: Mapped[str] = mapped_column(String(16), primary_key=True)
+    sleeve: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(32), primary_key=True)
+    tripped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    tripped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reset_by: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -19,17 +19,21 @@ assets:
     research: { venue: binance, symbol: BTCUSDT, base_currency: BTC, quote_currency: USDT }
     # Kraken: sim prices + the live venue (MiCA-licensed; Section 3.3).
     # Dash, not slash: Parquet partition dirs can't contain "/".
-    live: { venue: kraken, symbol: BTC-USD, base_currency: BTC, quote_currency: USD }
+    # Kraken's OHLC endpoint only returns the last 720 bars (~120 days at
+    # 4h) -- too short to warm up a 256-day EWMA -- so older history is
+    # backfilled from Binance's (BTCUSDT ~ BTC-USD); Kraken's own bars win
+    # wherever both exist.
+    live: { venue: kraken, symbol: BTC-USD, base_currency: BTC, quote_currency: USD, backfill_venue: binance, backfill_symbol: BTCUSDT }
     # Binance Spot Testnet: plumbing only, synthetic prices.
-    sandbox: { venue: binance_testnet, symbol: BTCUSDT, base_currency: BTC, quote_currency: USDT }
+    sandbox: { venue: binance_testnet, symbol: BTCUSDT, base_currency: BTC, quote_currency: USDT, backfill_venue: binance, backfill_symbol: BTCUSDT }
     costs:
       fee_pct: "0.0080" # Kraken entry-tier taker, verified Phase 2 (docs/api-notes.md)
       spread_bps: "2"
       slippage_k: "0.1"
   - id: ETH
     research: { venue: binance, symbol: ETHUSDT, base_currency: ETH, quote_currency: USDT }
-    live: { venue: kraken, symbol: ETH-USD, base_currency: ETH, quote_currency: USD }
-    sandbox: { venue: binance_testnet, symbol: ETHUSDT, base_currency: ETH, quote_currency: USDT }
+    live: { venue: kraken, symbol: ETH-USD, base_currency: ETH, quote_currency: USD, backfill_venue: binance, backfill_symbol: ETHUSDT }
+    sandbox: { venue: binance_testnet, symbol: ETHUSDT, base_currency: ETH, quote_currency: USDT, backfill_venue: binance, backfill_symbol: ETHUSDT }
     costs:
       fee_pct: "0.0080"
       spread_bps: "3"
@@ -45,3 +49,11 @@ risk:
 strategies:
   - name: trend_vol_target
     weight: 1.0
+
+# Live path (sandbox = Binance testnet, live = Kraken): marketable
+# limits 0.2% through the last price (inside the 2% band), 60 s to fill,
+# then up to two re-quotes.
+execution:
+  protection_bps: "20"
+  timeout_seconds: 60
+  max_requotes: 2

@@ -30,11 +30,21 @@ from core.orm import InstrumentRecord
 from core.reproducibility import git_sha
 from data import store, validate
 from data.calendars import crypto_expected_bar_starts, session_schedule
-from data.sources import binance_bulk, binance_exchange_info, ccxt_ohlcv, yahoo_chart
+from data.sources import (
+    binance_bulk,
+    binance_exchange_info,
+    ccxt_markets,
+    ccxt_ohlcv,
+    yahoo_chart,
+)
+from live import commands as live_commands
 
 app = typer.Typer(help="kestrel: multi-market systematic trading bot")
 data_app = typer.Typer(help="Fetch, store and validate market data")
 app.add_typer(data_app, name="data")
+app.command("run")(live_commands.run_cmd)
+app.add_typer(live_commands.admin_app, name="admin")
+app.add_typer(live_commands.ibkr_app, name="ibkr")
 
 CRYPTO_SLEEVE_PATH = Path("config/sleeves/crypto.yaml")
 EQUITIES_SLEEVE_PATH = Path("config/sleeves/equities.yaml")
@@ -206,41 +216,55 @@ def validate_data() -> None:
 
 @data_app.command("sync-instruments")
 def sync_instruments() -> None:
-    """Fetch tick size, step size and minimum notional for every
-    Binance-venue instrument in the crypto sleeve and upsert them into
-    the ``instruments`` table (design rule 4's rounding needs real
-    values, not the nullable placeholders Phase 0 left)."""
+    """Fetch tick size, step size and minimum notional for every crypto
+    listing (Binance via its raw exchangeInfo; Kraken and the Binance
+    testnet via ccxt's public markets) and upsert them into the
+    ``instruments`` table. IBKR listings: ``kestrel ibkr contracts``."""
+    import ccxt
+
+    from execution.brokers import binance_testnet
+
     settings = Settings()
     crypto = load_sleeve_config(CRYPTO_SLEEVE_PATH)
-    binance_entries = [a.research for a in crypto.assets if a.research.venue == Venue.BINANCE]
-    if not binance_entries:
-        typer.echo("no Binance-venue instruments in the crypto sleeve config")
-        return
+    found: dict[tuple[str, str, str, str], tuple[Decimal, Decimal, Decimal]] = {}
+    binance = [a.research for a in crypto.assets if a.research.venue == Venue.BINANCE]
+    for symbol, f in binance_exchange_info.fetch_filters([e.symbol for e in binance]).items():
+        listing = next(e for e in binance if e.symbol == symbol)
+        found[(listing.venue.value, symbol, listing.base_currency, listing.quote_currency)] = (
+            f.tick_size,
+            f.step_size,
+            f.min_notional,
+        )
+    for mode, exchange in (
+        ("sim", ccxt.kraken({"enableRateLimit": True})),
+        ("sandbox", binance_testnet.make_exchange()),
+    ):
+        listings = [a.listing_for(mode) for a in crypto.assets]
+        symbols = {li.symbol: f"{li.base_currency}/{li.quote_currency}" for li in listings}
+        for symbol, mf in ccxt_markets.fetch_filters(exchange, symbols).items():
+            li = next(x for x in listings if x.symbol == symbol)
+            found[(li.venue.value, symbol, li.base_currency, li.quote_currency)] = (
+                mf.tick_size,
+                mf.step_size,
+                mf.min_notional,
+            )
 
-    filters = binance_exchange_info.fetch_filters([e.symbol for e in binance_entries])
     engine = create_engine(settings.postgres_dsn)
     with Session(engine) as session:
-        for entry in binance_entries:
-            found = filters.get(entry.symbol)
-            if found is None:
-                typer.echo(f"  no exchange info returned for {entry.symbol}, skipping", err=True)
-                continue
-            record = session.get(InstrumentRecord, (entry.venue.value, entry.symbol))
+        for (venue, symbol, base, quote), (tick, step, min_notional) in found.items():
+            record = session.get(InstrumentRecord, (venue, symbol))
             if record is None:
                 record = InstrumentRecord(
-                    venue=entry.venue.value,
-                    symbol=entry.symbol,
+                    venue=venue,
+                    symbol=symbol,
                     asset_class=crypto.asset_class.value,
-                    base_currency=entry.base_currency,
-                    quote_currency=entry.quote_currency,
+                    base_currency=base,
+                    quote_currency=quote,
                 )
                 session.add(record)
-            record.tick_size = found.tick_size
-            record.step_size = found.step_size
-            record.min_notional = found.min_notional
+            record.tick_size, record.step_size, record.min_notional = tick, step, min_notional
             typer.echo(
-                f"  synced {entry.venue.value}:{entry.symbol}: tick={found.tick_size} "
-                f"step={found.step_size} min_notional={found.min_notional}"
+                f"  synced {venue}:{symbol}: tick={tick} step={step} min_notional={min_notional}"
             )
         session.commit()
 

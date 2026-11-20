@@ -134,10 +134,12 @@ def load_instruments(
         if session is not None:
             record = session.get(InstrumentRecord, (listing.venue.value, listing.symbol))
         if record is None:
-            warnings.append(
-                f"no synced metadata for {listing.instrument_id}; run `kestrel data "
-                "sync-instruments`. Proceeding without tick/step/min-notional rounding."
-            )
+            if listing.step_size is None:
+                warnings.append(
+                    f"no synced metadata for {listing.instrument_id}; run `kestrel data "
+                    "sync-instruments` (or `kestrel ibkr contracts`). Proceeding without "
+                    "tick/step/min-notional rounding."
+                )
             instruments[asset.id] = listing.to_instrument(sleeve.asset_class)
         else:
             instruments[asset.id] = listing.to_instrument(

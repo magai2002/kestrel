@@ -32,7 +32,9 @@ class EventType(StrEnum):
     ORDER = "order"
     FILL = "fill"
     KILL_SWITCH = "kill_switch"
-    # RECONCILIATION arrives in Phase 4, once there's a broker to reconcile against.
+    RECONCILIATION = "reconciliation"  # Phase 4: ledger vs broker
+    ACK = "ack"  # Phase 4: the venue's view of an order attempt
+    ALERT = "alert"
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,7 @@ class Event:
     event_type: EventType
     timestamp: datetime
     payload: dict[str, Any]
+    mode: str | None = None  # backtest | sim | sandbox | live
 
     def __post_init__(self) -> None:
         if self.timestamp.tzinfo is None:
@@ -56,6 +59,7 @@ def write_events(session: Session, events: list[Event]) -> None:
         EventLogRecord(
             run_id=event.run_id,
             sleeve=event.sleeve,
+            mode=event.mode,
             event_type=event.event_type.value,
             timestamp=event.timestamp,
             payload=event.payload,
