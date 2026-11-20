@@ -51,7 +51,7 @@ def build_strategy(sleeve: SleeveConfig) -> tuple[Strategy, str]:
         components.append((alloc.weight, strategy))
     if len(components) == 1:
         return components[0][1], sleeve.strategies[0].name
-    return CombinedStrategy(components), "portfolio"
+    return CombinedStrategy(components, tuple(a.name for a in sleeve.strategies)), "portfolio"
 
 
 def _ccxt_symbols(sleeve: SleeveConfig, mode: str) -> dict[str, str]:

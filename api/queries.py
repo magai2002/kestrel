@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from core.orm import (
     SleeveStateRecord,
     ValidationReportRecord,
 )
+from research import stats
 from research.tables import clean
 
 MODES = ("sim", "sandbox", "live")
@@ -225,6 +226,114 @@ def tracking(s: Session, sleeve: str, mode: str) -> dict[str, Any]:
             "max": max(shortfall) if shortfall else None,
         },
     }
+
+
+def _clean(x: dict[str, Any]) -> dict[str, Any]:
+    return cast(dict[str, Any], clean(x))
+
+
+def _decision_events(s: Session, sleeve: str, mode: str, limit: int) -> list[EventLogRecord]:
+    return list(
+        s.scalars(
+            select(EventLogRecord)
+            .where(
+                EventLogRecord.mode == mode,
+                EventLogRecord.sleeve == sleeve,
+                EventLogRecord.event_type == "decision",
+            )
+            .order_by(desc(EventLogRecord.timestamp), desc(EventLogRecord.id))
+            .limit(limit)
+        )
+    )
+
+
+def decisions(s: Session, sleeve: str, mode: str, history: int = 180) -> dict[str, Any]:
+    """The latest decision trace (``live/trace.py``: shareable by
+    construction) and, for charting, each recent decision's target vs
+    held weight per asset."""
+    rows = _decision_events(s, sleeve, mode, history)
+    latest_decided = next((r for r in rows if r.payload.get("status") == "decided"), None)
+    series = []
+    for r in reversed(rows):
+        assets = r.payload.get("assets") or {}
+        series.append(
+            {
+                "time": r.timestamp.isoformat(),
+                "status": r.payload.get("status"),
+                "target": {a: v.get("constrained") for a, v in assets.items()},
+                "held": {a: v.get("current") for a, v in assets.items()},
+                "aim": {a: v.get("buffered") for a, v in assets.items()},
+            }
+        )
+    return {
+        "sleeve": sleeve,
+        "mode": mode,
+        "latest": None
+        if not rows
+        else {"time": rows[0].timestamp.isoformat(), **_clean(rows[0].payload)},
+        "latest_decided": None
+        if latest_decided is None
+        else {"time": latest_decided.timestamp.isoformat(), **_clean(latest_decided.payload)},
+        "series": clean(series),
+    }
+
+
+def metrics(s: Session, sleeve: str, mode: str, periods_per_year: float) -> dict[str, Any]:
+    """Realised performance of the running sleeve, from its equity index
+    (shareable: returns don't depend on the capital) and its weights."""
+    import pandas as pd
+
+    rows = s.execute(
+        select(EquitySnapshotRecord.timestamp, EquitySnapshotRecord.equity_index)
+        .where(EquitySnapshotRecord.sleeve == sleeve, EquitySnapshotRecord.mode == mode)
+        .order_by(EquitySnapshotRecord.timestamp)
+    ).all()
+    out: dict[str, Any] = {
+        "sleeve": sleeve,
+        "mode": mode,
+        "periods_per_year": periods_per_year,
+        "n_bars": len(rows),
+    }
+    if len(rows) < 2:
+        return out
+    curve = pd.Series([float(e) for _, e in rows], index=[t for t, _ in rows])
+    returns = curve.pct_change().dropna()
+    snaps = s.scalars(
+        select(PositionsSnapshotRecord)
+        .where(PositionsSnapshotRecord.sleeve == sleeve, PositionsSnapshotRecord.mode == mode)
+        .order_by(PositionsSnapshotRecord.timestamp)
+    ).all()
+    weights = pd.DataFrame(
+        [{a: float(p["weight"]) for a, p in r.positions.items()} for r in snaps]
+    ).fillna(0.0)
+    dd = stats.max_drawdown(curve)
+    days = (rows[-1][0] - rows[0][0]).total_seconds() / 86400
+    n_fills = s.scalar(
+        select(func.count(FillRecord.id)).where(
+            FillRecord.sleeve == sleeve, FillRecord.mode == mode
+        )
+    )
+    out.update(
+        {
+            "since": rows[0][0].isoformat(),
+            "days": days,
+            "total_return": stats.total_return(curve),
+            # Annualising a few weeks of returns is mostly noise; the
+            # dashboard says so, but the numbers are the honest formula.
+            "cagr": stats.cagr(curve, periods_per_year) if days >= 30 else None,
+            "vol_annual": stats.annualized_vol(returns, periods_per_year),
+            "sharpe": stats.sharpe_ratio(returns, periods_per_year),
+            "sortino": stats.sortino_ratio(returns, periods_per_year),
+            "max_drawdown": dd.max_drawdown,
+            "current_drawdown": float(curve.iloc[-1] / curve.cummax().iloc[-1] - 1.0),
+            "exposure_avg": stats.exposure(weights),
+            "turnover_annual": stats.turnover(weights) * periods_per_year,
+            "best_bar": float(returns.max()),
+            "worst_bar": float(returns.min()),
+            "n_fills": int(n_fills or 0),
+        }
+    )
+    return _clean(out)
 
 
 def recent_fill_id(s: Session) -> int:

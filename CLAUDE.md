@@ -191,6 +191,17 @@ and formatting *before* executing keeps outputs matching the source.)
   that run). `backtest/engine.py` now branches on
   `portfolio.sizing.should_trade` directly instead of going through
   `buffered_target`'s returned weight for the "don't trade" case.
+- **A strategy's rebalance schedule must be knowable when the bar
+  closes.** `xs_momentum` rebalances on the *first* bar of each month;
+  "last bar of the month" is only known in hindsight, so a
+  trailing-window `on_bar` replay rebalanced every bar while validation
+  scored monthly. `test_on_bar_matches_full_history_on_every_bar`
+  guards it.
+- **The dashboard's decision trace reports, never recomputes.**
+  `live/trace.py` takes `plan_rebalance`'s outputs, and
+  `strategies/*.explain()` reuse the code path behind `compute_weights`
+  (`_components`, `_rebalance_row`). A trace failure is logged, never
+  raised into a cycle.
 - **Kill switches never reset themselves.** Six of them (`risk/kill_switch.py`
   pure checks; persisted in `kill_switch_state`). Trip -> cancel open
   orders -> ntfy alert -> halted until `kestrel admin reset-kill-switch`.
@@ -251,8 +262,11 @@ and formatting *before* executing keeps outputs matching the source.)
   `web/dist`; `create_admin_app`: loopback + token), `queries.py`,
   `ratelimit.py` (token bucket; X-Forwarded-For only from trusted CIDRs).
 - `web/` — React + Vite + TS dashboard (TanStack Query, Lightweight
-  Charts): Overview, Trades, Strategies, Live vs backtest, How it works.
+  Charts): Overview, Decisions, Trades, Strategies, Live vs backtest, How it works.
   Built inside the Dockerfile's `web` stage.
+- `live/trace.py` — per-cycle `decision` event (strategy internals ->
+  limits -> buffer -> orders -> risk headroom) -> `/api/decisions` ->
+  the dashboard's Decisions page. `/api/metrics`: realised stats.
 - `live/shadow.py` — nightly shadow backtest of the live period ->
   `backtest_runs` (`kind = shadow:<mode>`) -> `/api/tracking`.
 - `demo/market_data/` — committed Yahoo sample (10 US ETFs) for `make demo`.

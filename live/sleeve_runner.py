@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import structlog
@@ -57,9 +57,11 @@ from live.feeds import Feed, fetch_and_persist
 from live.reconcile import reconcile
 from live.schedule import sessions_between
 from live.state import FillRow, OrderRow, SleeveState, StateStore
+from live.trace import decision_trace, risk_snapshot
 from observability.alerts import Alerter
 from portfolio.construction import implied_weight
 from portfolio.rebalance import plan_rebalance
+from research.tables import clean
 from risk import kill_switch as ks
 from strategies.base import Strategy, StrategyContext
 
@@ -687,7 +689,23 @@ def run_cycle(
         )
         return result
 
+    def trace(status: str, extra: dict[str, Any] | None = None, **kw: Any) -> None:
+        """Decision-trace event (dashboard only; a failure here is logged, never raised)."""
+        try:
+            payload: dict[str, Any] = {
+                "status": status,
+                "tripped": tripped,
+                "risk": risk_snapshot(rt, state, eq_f, weights_now, bar_close, now, **kw),
+            }
+            payload.update(extra or {})
+            payload = cast(dict[str, Any], clean(payload))  # JSON-safe: no NaN into Postgres
+        except Exception as exc:
+            log.warning("decision_trace_failed", sleeve=rt.name, error=str(exc))
+            payload = {"status": status, "tripped": tripped, "error": str(exc)}
+        events.append(rt.event(EventType.DECISION, bar_close, payload))
+
     if tripped:
+        trace("halted")
         _cancel_all_open(rt, errors)
         state.pending_orders = []
         flattened = 0
@@ -699,6 +717,7 @@ def run_cycle(
             booked += flattened
         return finish("halted", detail="kill switch(es) tripped: " + ", ".join(tripped))
     if paused:
+        trace("paused")
         state.pending_orders = []
         return finish("paused")
 
@@ -707,7 +726,9 @@ def run_cycle(
         aid: prices.bars[aid].set_index("open_time")[["open", "high", "low", "close", "volume"]]
         for aid in sleeve.asset_ids
     }
-    raw = rt.strategy.on_bar(StrategyContext(history=history, now=bar_close))
+    ctx = StrategyContext(history=history, now=bar_close)
+    raw = rt.strategy.on_bar(ctx)
+    sizing_equity = equity if rt.capital_cap is None else min(equity, rt.capital_cap)
     # The price band is checked against the last price; the live limit
     # sits protection_bps (0.2%) from it, well inside the 1-2% band.
     plan = plan_rebalance(
@@ -715,7 +736,7 @@ def run_cycle(
         held_quantities=dict(state.positions),
         last_prices=last_prices,
         # Live (gate 2): never size from more than max_live_capital.
-        sleeve_equity=equity if rt.capital_cap is None else min(equity, rt.capital_cap),
+        sleeve_equity=sizing_equity,
         symbols=rt.symbols(),
         step_sizes={a: rt.instruments[a].step_size or Decimal(0) for a in sleeve.asset_ids},
         min_notionals={a: rt.instruments[a].min_notional or Decimal(0) for a in sleeve.asset_ids},
@@ -731,6 +752,11 @@ def run_cycle(
             bar_close,
             {"raw": raw, "weights": plan.target_weights, "buffered": plan.buffered_weights},
         )
+    )
+    trace(
+        "decided",
+        decision_trace(rt, ctx, raw, plan, weights_now, last_prices, sizing_equity),
+        after=plan.buffered_weights,
     )
     for order, decision in plan.decisions:
         events.append(

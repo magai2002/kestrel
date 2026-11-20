@@ -15,21 +15,21 @@ from strategies.xs_momentum import (
 
 
 def test_rebalance_positions_hand_computed() -> None:
-    index = pd.date_range("2024-01-01", "2024-02-29", freq="D")
-    positions = _rebalance_positions(index, "ME")
-    # Jan has 31 days (positions 0..30), so Jan's last position is 30;
-    # Feb 2024 is a leap year (29 days), starting at position 31, so
-    # Feb's last position is 31 + 29 - 1 = 59.
-    assert positions == [30, 59]
-
-
-def test_rebalance_positions_includes_trailing_partial_period() -> None:
-    # pandas' resample().last() includes a final partial bin if it has
-    # data in it, even though the calendar period hasn't ended --
-    # that's the "most recent decision" we want, not a bug.
     index = pd.date_range("2024-01-01", "2024-03-05", freq="D")
     positions = _rebalance_positions(index, "ME")
-    assert positions == [30, 59, 64]
+    # Jan has 31 days (positions 0..30), so Feb starts at 31; Feb 2024 is
+    # a leap year (29 days), so Mar starts at 31 + 29 = 60. Position 0
+    # is never a rebalance (nothing before it to know a period began).
+    assert positions == [31, 60]
+
+
+def test_newest_bar_of_an_open_month_is_not_a_rebalance() -> None:
+    # The bug this timing fixes: with "last bar of the month", the newest
+    # bar of a still-open month looked like a month-end, so every
+    # trailing-window replay (on_bar, live) rebalanced on every bar.
+    index = pd.date_range("2024-01-01", "2024-03-05", freq="D")
+    for end in range(61, len(index)):
+        assert _rebalance_positions(index[: end + 1], "ME") == [31, 60]
 
 
 def test_lookback_return_hand_computed() -> None:
@@ -113,19 +113,38 @@ def test_weights_only_change_at_rebalance_bars() -> None:
     assert changed_positions <= rebalance_positions
 
 
-def test_on_bar_matches_vectorized_replay() -> None:
+def test_on_bar_matches_full_history_on_every_bar() -> None:
+    """The live/event path must make the same decision as the vectorized
+    one (what validation scored) on *every* bar, not only month-ends.
+    Real default params; 1e-6 absorbs only the EWMA warm-up difference."""
+    rng = np.random.default_rng(0)
+    index = pd.bdate_range("2020-01-01", "2023-06-30", tz="UTC")
+    cols = list("ABCDEF")
+    prices = pd.DataFrame(
+        100 * np.exp(np.cumsum(rng.normal(0.0003, 0.01, (len(index), len(cols))), axis=0)),
+        index=index,
+        columns=cols,
+    )
+    params = XSMomentumParams()
+    full = compute_weights(prices, params)
+    strategy = CrossSectionalMomentum(params=params)
+    for i in range(len(index) - 90, len(index)):
+        history = {c: pd.DataFrame({"close": prices[c].iloc[: i + 1]}) for c in cols}
+        got = strategy.on_bar(StrategyContext(history=history, now=index[i].to_pydatetime()))
+        for c in cols:
+            assert got[c] == pytest.approx(full[c].iloc[i], abs=1e-6), (index[i], c)
+
+
+def test_explain_reports_the_weights_on_bar_returns() -> None:
     prices = _three_instrument_frame()
     params = XSMomentumParams(lookback_months=1, top_n=3, vol_span_days=10, bars_per_day=1.0)
-    expected = compute_weights(prices, params)
-
     strategy = CrossSectionalMomentum(params=params)
     history = {col: pd.DataFrame({"close": prices[col]}) for col in prices.columns}
-    ctx = StrategyContext(history=history, now=pd.Timestamp("2024-01-01", tz="UTC"))
-    result = strategy.on_bar(ctx)
-    # Not bit-identical: the windowed replay's EWMA vol estimate warms
-    # up from a different starting point than the full-history version,
-    # so it converges close but never exactly matches -- this is the
-    # same "stated tolerance" the Phase 2 parity tests use, just at
-    # strategy-unit-test scale.
-    for col in prices.columns:
-        assert result[col] == pytest.approx(expected[col].iloc[-1], abs=1e-4)
+    ctx = StrategyContext(history=history, now=pd.Timestamp("2024-03-20", tz="UTC"))
+    ex = strategy.explain(ctx)
+    assert ex["weights"] == strategy.on_bar(ctx)
+    assets = ex["assets"]
+    assert isinstance(assets, dict)
+    assert assets["loser"]["positive"] is False and assets["loser"]["weight"] == 0.0
+    assert assets["winner"]["rank"] == 1 and assets["winner"]["top_n"] is True
+    assert ex["rebalanced_at"] == "2024-03-01T00:00:00"

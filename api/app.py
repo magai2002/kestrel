@@ -52,6 +52,12 @@ def _check(sleeve: str | None = None, mode: str | None = None) -> None:
         raise HTTPException(404, f"unknown mode {mode!r}")
 
 
+def _periods_per_year(sleeve: str) -> float:
+    from config.sleeve import load_sleeve
+
+    return load_sleeve(sleeve).periods_per_year
+
+
 def create_public_app(
     session_factory: SessionFactory,
     web_dist: Path | None = None,
@@ -113,6 +119,23 @@ def create_public_app(
     def tracking(sleeve: str, mode: str = "sim", s: Session = Depends(db)) -> dict[str, Any]:
         _check(sleeve, mode)
         return queries.tracking(s, sleeve, mode)
+
+    @r.get("/decisions")
+    def decisions(
+        sleeve: str,
+        mode: str = "sim",
+        history: int = Query(180, ge=1, le=1000),
+        s: Session = Depends(db),
+    ) -> dict[str, Any]:
+        """Latest decision trace: strategy internals -> constraints ->
+        buffer -> orders -> risk, plus kill-switch headroom."""
+        _check(sleeve, mode)
+        return queries.decisions(s, sleeve, mode, history)
+
+    @r.get("/metrics")
+    def metrics(sleeve: str, mode: str = "sim", s: Session = Depends(db)) -> dict[str, Any]:
+        _check(sleeve, mode)
+        return queries.metrics(s, sleeve, mode, _periods_per_year(sleeve))
 
     @r.get("/stream")
     async def stream(interval: float = Query(15.0, ge=5.0, le=120.0)) -> StreamingResponse:

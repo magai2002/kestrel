@@ -112,11 +112,24 @@ def _span_bars(days: float, bars_per_day: float) -> int:
 def _single_instrument_weight(
     price: pd.Series, params: TrendVolTargetParams, instrument_weight: float = 1.0
 ) -> pd.Series:
+    weight = _components(price, params, instrument_weight)["weight"]
+    return pd.Series(weight, index=price.index)
+
+
+def _components(
+    price: pd.Series, params: TrendVolTargetParams, instrument_weight: float
+) -> dict[str, np.ndarray]:
+    """Every intermediate of the weight calculation, as arrays aligned
+    with ``price``. ``weight`` is the answer; the rest exists so
+    ``explain`` (the dashboard's decision trace) reports the *same*
+    numbers the weight was built from, not a re-derivation that could drift.
+    """
     # pandas only for the windowed kernels (ewm, rolling); every
     # elementwise step is numpy. Same arithmetic, same order, so the
     # results are bit-identical (the golden hash didn't move), but pandas'
     # per-call overhead on clip/where/replace was ~2/3 of an event
     # backtest's runtime (Phase 6 profile: 4m15s for the equities sleeve).
+    out: dict[str, np.ndarray] = {}
     vol_span = _span_bars(params.vol_span_days, params.bars_per_day)
     returns = price.pct_change()
     pct_vol_s = returns.ewm(span=vol_span, min_periods=vol_span).std()
@@ -127,7 +140,7 @@ def _single_instrument_weight(
     scalar_window = required_lookback_bars(params)
 
     speed_forecasts = []
-    for fast_days, slow_days in params.speeds_days:
+    for k, (fast_days, slow_days) in enumerate(params.speeds_days):
         fast_span = _span_bars(fast_days, params.bars_per_day)
         slow_span = _span_bars(slow_days, params.bars_per_day)
         ewma_fast = price.ewm(span=fast_span, min_periods=fast_span).mean().to_numpy()
@@ -152,6 +165,9 @@ def _single_instrument_weight(
             scalar = params.forecast_target / np.where(mean_abs == 0.0, np.nan, mean_abs)
             scaled = np.clip(normalized * scalar, -params.forecast_cap, params.forecast_cap)
         speed_forecasts.append(np.where(np.isnan(scaled), 0.0, scaled))
+        out[f"crossover_{k}"] = normalized
+        out[f"scalar_{k}"] = scalar
+        out[f"forecast_{k}"] = speed_forecasts[-1]
 
     combined_forecast = pd.DataFrame(np.column_stack(speed_forecasts)).mean(axis=1).to_numpy()
     long_only_forecast = np.maximum(combined_forecast, 0.0)
@@ -168,7 +184,67 @@ def _single_instrument_weight(
         * params.idm
     )
     clipped = np.clip(position_weight, 0.0, 1.0)
-    return pd.Series(np.where(np.isnan(clipped), 0.0, clipped), index=price.index)
+    out.update(
+        vol_annual=annualized_vol,
+        forecast=combined_forecast,
+        forecast_long_only=long_only_forecast,
+        vol_target_weight=sized_weight,
+        weight=np.where(np.isnan(clipped), 0.0, clipped),
+    )
+    return out
+
+
+def _num(x: float) -> float | None:
+    """JSON-safe float: NaN/inf -> None."""
+    x = float(x)
+    return x if math.isfinite(x) else None
+
+
+def explain_last(prices: pd.DataFrame, params: TrendVolTargetParams) -> dict[str, object]:
+    """The decision trace for the newest row of ``prices``: per asset,
+    every step from price to target weight. Only unitless or per-unit
+    numbers (forecasts, volatilities, weights, prices), so it's safe
+    for the public dashboard."""
+    iw = params.instrument_weight
+    if iw is None:
+        iw = 1.0 / max(1, len(prices.columns))
+    assets: dict[str, object] = {}
+    weights: dict[str, float] = {}
+    for col in prices.columns:
+        c = _components(prices[col], params, iw)
+        weights[str(col)] = float(c["weight"][-1])
+        assets[str(col)] = {
+            "price": _num(prices[col].iloc[-1]),
+            "vol_annual": _num(c["vol_annual"][-1]),
+            "speeds": [
+                {
+                    "fast_days": fast,
+                    "slow_days": slow,
+                    "crossover": _num(c[f"crossover_{k}"][-1]),
+                    "scalar": _num(c[f"scalar_{k}"][-1]),
+                    "forecast": _num(c[f"forecast_{k}"][-1]),
+                }
+                for k, (fast, slow) in enumerate(params.speeds_days)
+            ],
+            "forecast": _num(c["forecast"][-1]),
+            "forecast_long_only": _num(c["forecast_long_only"][-1]),
+            "vol_target_weight": _num(c["vol_target_weight"][-1]),
+            "instrument_weight": iw,
+            "idm": params.idm,
+            "weight": weights[str(col)],
+        }
+    return {
+        "kind": "trend_vol_target",
+        "params": {
+            "target_vol_annual": params.target_vol_annual,
+            "forecast_target": params.forecast_target,
+            "forecast_cap": params.forecast_cap,
+            "vol_span_days": params.vol_span_days,
+            "speeds_days": [list(s) for s in params.speeds_days],
+        },
+        "weights": weights,
+        "assets": assets,
+    }
 
 
 def compute_weights(prices: pd.DataFrame, params: TrendVolTargetParams) -> pd.DataFrame:
@@ -199,13 +275,24 @@ class TrendVolTarget:
 
     params: TrendVolTargetParams = field(default_factory=TrendVolTargetParams)
 
-    def on_bar(self, ctx: StrategyContext) -> dict[str, float]:
+    def _window(self, ctx: StrategyContext) -> pd.DataFrame:
         lookback = required_lookback_bars(self.params)
-        prices = {
-            instrument_id: bars["close"].iloc[-lookback:]
-            for instrument_id, bars in ctx.history.items()
-        }
-        prices_df = pd.DataFrame(prices)
+        return pd.DataFrame(
+            {
+                instrument_id: bars["close"].iloc[-lookback:]
+                for instrument_id, bars in ctx.history.items()
+            }
+        )
+
+    def explain(self, ctx: StrategyContext) -> dict[str, object]:
+        """Same window as ``on_bar``, so ``explain(ctx)["weights"] == on_bar(ctx)``."""
+        prices_df = self._window(ctx)
+        if prices_df.empty:
+            return {"kind": "trend_vol_target", "weights": self.on_bar(ctx), "assets": {}}
+        return explain_last(prices_df, self.params)
+
+    def on_bar(self, ctx: StrategyContext) -> dict[str, float]:
+        prices_df = self._window(ctx)
         weights_df = compute_weights(prices_df, self.params)
         if weights_df.empty:
             return {instrument_id: 0.0 for instrument_id in ctx.history}

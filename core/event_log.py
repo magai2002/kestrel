@@ -36,6 +36,7 @@ class EventType(StrEnum):
     ACK = "ack"  # Phase 4: the venue's view of an order attempt
     ALERT = "alert"
     EMERGENCY_STOP_REHEARSAL = "emergency_stop_rehearsal"  # Phase 7 gate 7
+    DECISION = "decision"  # per-cycle decision trace for the dashboard (live/trace.py)
 
 
 @dataclass(frozen=True)

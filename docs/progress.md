@@ -1,5 +1,50 @@
 # Progress
 
+## After Phase 7: the Decisions page, and an xs_momentum timing bug
+
+### What's built
+
+- **A decision trace on every cycle** (`live/trace.py`): one `decision`
+  event per cycle. It holds the values `plan_rebalance` and the
+  strategies actually used, never a re-derivation:
+  - **Strategy internals.** Trend: volatility, each speed's crossover ×
+    scalar → capped forecast, the long-only floor, the vol scalar,
+    instrument weight × IDM. Momentum: rank, lookback return, top-N,
+    the absolute-momentum filter, the last rebalance date.
+  - **Each asset through the pipeline:** raw target → after limits
+    (and which cap bound) → held → gap vs buffer → fit-to-limits trim
+    → order (as a % of equity) → risk verdict.
+  - **Every limit and kill switch next to its current value.**
+  - Halted and paused cycles record the risk part only.
+
+  `strategies/*.explain()` reuses the exact code path behind
+  `compute_weights` (`trend_vol_target._components`,
+  `xs_momentum._rebalance_row`). A test checks that the trace equals the
+  TARGET event's weights on every cycle.
+- **Public API**: `/api/decisions` (latest trace plus target vs held per
+  decision) and `/api/metrics` (realised return, vol, Sharpe, Sortino,
+  drawdown, exposure, turnover, from the equity index). Both carry
+  shareable numbers only; the API test runs real cycles through Postgres
+  and greps for cash and quantities.
+- **Dashboard: a Decisions page**. It shows risk headroom meters, the
+  signal-to-order table, the trend and momentum internals, a target vs
+  held chart, and realised metrics. The page refreshes every minute.
+
+### Found while building it (a real bug)
+
+- **`xs_momentum` rebalanced daily in the event engine and live, but
+  monthly in validation.** It rebalanced on the *last* bar of each month
+  (`resample("ME").last()`), which is only knowable in hindsight. On a
+  trailing window, which is what `on_bar` replays, the newest bar of the
+  still-open month looked like a month-end. `on_bar` therefore disagreed
+  with `compute_weights` on 114 of 120 bars.
+
+  The fix rebalances on the **first bar of each new month**, which is
+  knowable the moment it closes. `test_on_bar_matches_full_history_on_every_bar`
+  now checks every bar with the real parameters. The equities `sim`
+  sleeve was flat when this was deployed. The stored xs_momentum
+  validation report predates the fix (month-end timing, one day earlier).
+
 ## Phase 7: Live mode — the gates are built and enforced; live is NOT unlocked
 
 Scope: the spec's Section 13 checklist **in code**, plus the

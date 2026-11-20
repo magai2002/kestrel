@@ -91,6 +91,133 @@ export interface Tracking {
   implementation_shortfall_bps: { n_fills: number; mean: number | null; max: number | null };
 }
 
+// --- decision trace (live/trace.py) -------------------------------------
+
+export interface TrendSpeed {
+  fast_days: number;
+  slow_days: number;
+  crossover: number | null;
+  scalar: number | null;
+  forecast: number | null;
+}
+
+export interface TrendAsset {
+  price: number | null;
+  vol_annual: number | null;
+  speeds: TrendSpeed[];
+  forecast: number | null;
+  forecast_long_only: number | null;
+  vol_target_weight: number | null;
+  instrument_weight: number;
+  idm: number;
+  weight: number;
+}
+
+export interface MomentumAsset {
+  price: number;
+  lookback_return: number | null;
+  rank: number | null;
+  top_n: boolean;
+  positive: boolean;
+  vol_annual: number | null;
+  weight: number;
+}
+
+export interface StrategyTrace {
+  strategy: string;
+  allocation: number;
+  kind?: "trend_vol_target" | "xs_momentum";
+  params?: Record<string, unknown>;
+  weights?: Record<string, number>;
+  assets?: Record<string, TrendAsset | MomentumAsset>;
+  rebalanced_at?: string | null;
+  rebalanced_today?: boolean;
+  error?: string;
+}
+
+export interface AssetTrace {
+  price: number;
+  by_strategy: Record<string, number>;
+  raw: number;
+  constrained: number;
+  constraint: string | null;
+  current: number;
+  gap: number;
+  outside_buffer: boolean;
+  buffered: number;
+  trimmed_to_fit_limits: boolean;
+  action: string;
+  order: { side: "buy" | "sell"; size_pct_of_equity: number | null; approved: boolean; reason: string | null } | null;
+}
+
+export interface Limit {
+  value: number;
+  limit?: number;
+  cap?: number;
+  after?: number | null;
+}
+
+export interface RiskTrace {
+  daily_pnl: Limit & { absolute_limit_set: boolean };
+  drawdown: Limit;
+  gross: Limit;
+  instrument_cap: number;
+  groups: (Limit & { name: string; members: string[] })[];
+  data: { bar_close: string; age_seconds: number; stale_after: string; stale_after_seconds: number | null };
+  errors: { recent: number; limit: number; window_minutes: number };
+  max_order_pct: number;
+  price_band_pct: number;
+}
+
+export interface DecisionTrace {
+  time: string;
+  status: "decided" | "halted" | "paused";
+  tripped: string[];
+  risk?: RiskTrace;
+  error?: string;
+  strategy_label?: string;
+  buffer_pct?: number;
+  strategies?: StrategyTrace[];
+  assets?: Record<string, AssetTrace>;
+  n_orders?: number;
+  n_approved?: number;
+}
+
+export interface Decisions {
+  sleeve: string;
+  mode: string;
+  latest: DecisionTrace | null;
+  latest_decided: DecisionTrace | null;
+  series: {
+    time: string;
+    status: string;
+    target: Record<string, number | null>;
+    held: Record<string, number | null>;
+    aim: Record<string, number | null>;
+  }[];
+}
+
+export interface Metrics {
+  sleeve: string;
+  mode: string;
+  n_bars: number;
+  periods_per_year: number;
+  since?: string;
+  days?: number;
+  total_return?: number | null;
+  cagr?: number | null;
+  vol_annual?: number | null;
+  sharpe?: number | null;
+  sortino?: number | null;
+  max_drawdown?: number | null;
+  current_drawdown?: number | null;
+  exposure_avg?: number | null;
+  turnover_annual?: number | null;
+  best_bar?: number | null;
+  worst_bar?: number | null;
+  n_fills?: number;
+}
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`/api${path}`);
   if (!r.ok) throw new Error(`${r.status} ${r.statusText} for ${path}`);
@@ -105,12 +232,16 @@ export const api = {
   strategies: () => get<StrategySummary[]>("/strategies"),
   report: (id: string, sleeve: string) => get<Report>(`/strategies/${id}/report?sleeve=${sleeve}`),
   tracking: (sleeve: string, mode = "sim") => get<Tracking>(`/tracking?sleeve=${sleeve}&mode=${mode}`),
+  decisions: (sleeve: string, mode = "sim") => get<Decisions>(`/decisions?sleeve=${sleeve}&mode=${mode}`),
+  metrics: (sleeve: string, mode = "sim") => get<Metrics>(`/metrics?sleeve=${sleeve}&mode=${mode}`),
 };
 
 export const fmt = {
   num: (x: number | null | undefined, d = 2) => (x == null || Number.isNaN(x) ? "—" : x.toFixed(d)),
   pct: (x: number | null | undefined, d = 1) =>
     x == null || Number.isNaN(x) ? "—" : `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`,
+  /** weight / fraction -> "12.3%" (no sign) */
+  w: (x: number | null | undefined, d = 1) => (x == null || Number.isNaN(x) ? "—" : `${(x * 100).toFixed(d)}%`),
   age: (s: number | null | undefined) => {
     if (s == null) return "—";
     if (s < 3600) return `${Math.round(s / 60)} min`;

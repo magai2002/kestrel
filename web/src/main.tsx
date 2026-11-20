@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 import { StatusStrip } from "./components/StatusStrip";
+import { Decisions } from "./pages/Decisions";
 import { HowItWorks } from "./pages/HowItWorks";
 import { Overview } from "./pages/Overview";
 import { Strategies } from "./pages/Strategies";
@@ -21,6 +22,7 @@ function App() {
         </div>
         <nav>
           <NavLink to="/" end>overview</NavLink>
+          <NavLink to="/decisions">decisions</NavLink>
           <NavLink to="/trades">trades</NavLink>
           <NavLink to="/strategies">strategies</NavLink>
           <NavLink to="/tracking">live vs backtest</NavLink>
@@ -31,6 +33,7 @@ function App() {
         <StatusStrip />
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/decisions" element={<Decisions />} />
           <Route path="/trades" element={<Trades />} />
           <Route path="/strategies" element={<Strategies />} />
           <Route path="/tracking" element={<Tracking />} />
