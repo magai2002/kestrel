@@ -31,3 +31,8 @@ htmlcov/
 # Node (web/ dashboard, Phase 6)
 node_modules/
 web/dist/
+
+# Deployment secrets (deploy/.env, deploy/ibgateway.env)
+deploy/.env
+deploy/*.env
+!deploy/*.env.example

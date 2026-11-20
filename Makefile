@@ -1,4 +1,4 @@
-.PHONY: setup lint fmt typecheck test up down migrate data data-crypto data-equities data-validate sync-instruments backtest validate notebook ci
+.PHONY: setup lint fmt typecheck test up down migrate data data-crypto data-equities data-validate sync-instruments backtest validate notebook deploy prod-up prod-logs backup ci
 
 UV := uv
 
@@ -63,5 +63,20 @@ notebook:
 	$(UV) run python notebooks/build_01_first_look.py
 	$(UV) run ruff format notebooks/01_first_look.ipynb
 	$(UV) run jupyter execute --inplace notebooks/01_first_look.ipynb
+
+## Phase 5: production stack (deploy/docker-compose.prod.yml), 127.0.0.1-only ports.
+PROD := docker compose -f deploy/docker-compose.prod.yml
+prod-up:
+	$(PROD) up -d
+prod-logs:
+	$(PROD) logs -f --tail 100 engine-sim
+backup:
+	./deploy/backup/kestrel-backup.sh
+
+## Deploy over SSH: make deploy DEPLOY_HOST=user@host [DEPLOY_DIR=...]
+DEPLOY_DIR ?= /root/trading_bot/kestrel
+deploy:
+	@test -n "$(DEPLOY_HOST)" || (echo "usage: make deploy DEPLOY_HOST=user@host" && exit 1)
+	ssh $(DEPLOY_HOST) 'cd $(DEPLOY_DIR) && ./deploy/deploy.sh'
 
 ci: lint typecheck test

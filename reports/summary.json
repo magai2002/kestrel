@@ -1,6 +1,6 @@
 {
  "buy_and_hold/crypto": {
-  "generated_at": "2026-11-20T11:31:47.017535+00:00",
+  "generated_at": "2026-11-20T13:59:09.072624+00:00",
   "headline": {
    "baseline": "equal_weight_rebalanced",
    "baseline_oos_sharpe": 0.8583535966391747,
@@ -32,7 +32,7 @@
    "sharpe": 0.8900208837180184,
    "turnover_annual": 0.18297603332453408
   },
-  "run_id": "a0289b07-7b48-4050-a39a-399555e27e9d",
+  "run_id": "9c8be8b6-3709-47d5-a8f8-244473c95e72",
   "verdict": {
    "checks": {
     "beats_baseline_oos": true,
@@ -44,7 +44,7 @@
   }
  },
  "buy_and_hold/equities": {
-  "generated_at": "2026-11-20T11:32:07.562063+00:00",
+  "generated_at": "2026-11-20T13:59:28.174762+00:00",
   "headline": {
    "baseline": "equal_weight_rebalanced",
    "baseline_oos_sharpe": 0.714280772201271,
@@ -76,7 +76,7 @@
    "sharpe": 0.7365372765550956,
    "turnover_annual": 0.019435055021218103
   },
-  "run_id": "aa6c69af-95c4-4572-a75a-e5198068a7b0",
+  "run_id": "b47eaca7-3fd5-4ed3-8f50-1e127cfd0008",
   "verdict": {
    "checks": {
     "beats_baseline_oos": true,
@@ -88,7 +88,7 @@
   }
  },
  "equal_weight_rebalanced/crypto": {
-  "generated_at": "2026-11-20T11:31:48.720231+00:00",
+  "generated_at": "2026-11-20T13:59:10.587893+00:00",
   "headline": {
    "baseline": "buy_and_hold",
    "baseline_oos_sharpe": 0.8233429017688749,
@@ -120,7 +120,7 @@
    "sharpe": 0.8600823878796492,
    "turnover_annual": 0.0
   },
-  "run_id": "b2db7ce7-3a5f-4c7a-9090-3c37fdcbd1ad",
+  "run_id": "02c57fef-f50d-413c-8ae6-669caa3a9843",
   "verdict": {
    "checks": {
     "beats_baseline_oos": true,
@@ -132,7 +132,7 @@
   }
  },
  "equal_weight_rebalanced/equities": {
-  "generated_at": "2026-11-20T11:32:07.945820+00:00",
+  "generated_at": "2026-11-20T13:59:28.576002+00:00",
   "headline": {
    "baseline": "buy_and_hold",
    "baseline_oos_sharpe": 0.7075969032788294,
@@ -164,7 +164,7 @@
    "sharpe": 0.7155086434837822,
    "turnover_annual": 0.0
   },
-  "run_id": "3bd4ba10-92e5-4a44-bc0f-a81a1658d34b",
+  "run_id": "8d905ee2-05a3-4835-b85b-d99648b136c4",
   "verdict": {
    "checks": {
     "beats_baseline_oos": true,
@@ -176,7 +176,7 @@
   }
  },
  "mean_reversion/crypto": {
-  "generated_at": "2026-11-20T11:31:44.226896+00:00",
+  "generated_at": "2026-11-20T13:59:07.115038+00:00",
   "headline": {
    "baseline": "buy_and_hold",
    "baseline_oos_sharpe": 0.7348155423545415,
@@ -208,7 +208,7 @@
    "sharpe": -3.2475032375903568,
    "turnover_annual": 74.60700108264164
   },
-  "run_id": "b38370d0-f463-4ace-af59-3529f3a06c5c",
+  "run_id": "f12eef1b-6893-449f-aa1e-2f235f35263a",
   "verdict": {
    "checks": {
     "beats_baseline_oos": false,
@@ -220,7 +220,7 @@
   }
  },
  "mean_reversion/equities": {
-  "generated_at": "2026-11-20T11:32:07.144494+00:00",
+  "generated_at": "2026-11-20T13:59:27.632964+00:00",
   "headline": {
    "baseline": "buy_and_hold",
    "baseline_oos_sharpe": 0.753309255853352,
@@ -252,7 +252,7 @@
    "sharpe": -0.18692005097671277,
    "turnover_annual": 5.911848341232227
   },
-  "run_id": "8f85efdf-a106-4d58-b04b-7169f602d70b",
+  "run_id": "a4da1711-e389-4017-8665-83eb4c865ea6",
   "verdict": {
    "checks": {
     "beats_baseline_oos": false,
@@ -264,7 +264,7 @@
   }
  },
  "trend_vol_target/crypto": {
-  "generated_at": "2026-11-20T11:31:30.714081+00:00",
+  "generated_at": "2026-11-20T13:58:52.888676+00:00",
   "headline": {
    "baseline": "buy_and_hold",
    "baseline_oos_sharpe": 0.3469009838434114,
@@ -296,7 +296,7 @@
    "sharpe": 0.4428294294604137,
    "turnover_annual": 1.0699577343286752
   },
-  "run_id": "27b5d651-4033-4041-8f93-4dc02d0e41a8",
+  "run_id": "4e055a03-8215-4d0d-bc5b-36dd24d3ba35",
   "verdict": {
    "checks": {
     "beats_baseline_oos": true,
@@ -308,7 +308,7 @@
   }
  },
  "trend_vol_target/equities": {
-  "generated_at": "2026-11-20T11:31:55.376663+00:00",
+  "generated_at": "2026-11-20T13:59:16.426494+00:00",
   "headline": {
    "baseline": "buy_and_hold",
    "baseline_oos_sharpe": 0.7515262236584355,
@@ -340,7 +340,7 @@
    "sharpe": 0.8458143660795483,
    "turnover_annual": 1.1934413664511194
   },
-  "run_id": "3277cb86-89fe-4288-918f-bf9a7cc32572",
+  "run_id": "85460a25-c6b5-435d-8929-5e7c5eb983ab",
   "verdict": {
    "checks": {
     "beats_baseline_oos": true,
@@ -352,7 +352,7 @@
   }
  },
  "xs_momentum/crypto": {
-  "generated_at": "2026-11-20T11:31:38.106632+00:00",
+  "generated_at": "2026-11-20T13:59:00.693039+00:00",
   "headline": {
    "baseline": "equal_weight_rebalanced",
    "baseline_oos_sharpe": 0.6189641968830859,
@@ -384,7 +384,7 @@
    "sharpe": 0.2785002169799489,
    "turnover_annual": 2.6425339366515836
   },
-  "run_id": "7727814e-cb23-4780-adb8-42ff6f1e50d6",
+  "run_id": "25bac237-da9d-4551-948e-940a6f40351b",
   "verdict": {
    "checks": {
     "beats_baseline_oos": false,
@@ -396,7 +396,7 @@
   }
  },
  "xs_momentum/equities": {
-  "generated_at": "2026-11-20T11:32:03.711827+00:00",
+  "generated_at": "2026-11-20T13:59:24.257002+00:00",
   "headline": {
    "baseline": "equal_weight_rebalanced",
    "baseline_oos_sharpe": 0.4613708697474427,
@@ -428,7 +428,7 @@
    "sharpe": 0.27653594388010566,
    "turnover_annual": 5.077927513996514
   },
-  "run_id": "1aa44495-baff-4c18-9996-fec3a2ef1400",
+  "run_id": "67748d31-6af7-4925-b398-ad03680f1e6e",
   "verdict": {
    "checks": {
     "beats_baseline_oos": false,

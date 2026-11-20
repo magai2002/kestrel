@@ -411,7 +411,7 @@ def validate_cmd(
                 "generated_at": report["generated_at"],
             }
     settings.reports_dir.mkdir(parents=True, exist_ok=True)
-    summary_path.write_text(json.dumps(summary, indent=1, sort_keys=True))
+    summary_path.write_text(json.dumps(summary, indent=1, sort_keys=True) + "\n")
 
 
 def _fmt(x: object) -> str:

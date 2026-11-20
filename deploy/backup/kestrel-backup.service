@@ -1,0 +1,12 @@
+# Install (shown to you first, per SPEC Section 10):
+#   cp deploy/backup/kestrel-backup.{service,timer} /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now kestrel-backup.timer
+[Unit]
+Description=kestrel nightly Postgres backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=KESTREL_REPO_DIR=/root/trading_bot/kestrel
+ExecStart=/root/trading_bot/kestrel/deploy/backup/kestrel-backup.sh

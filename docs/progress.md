@@ -1,5 +1,80 @@
 # Progress
 
+## Phase 5: Observability and VPS deployment — `sim` live on the VPS; host changes await your OK
+
+**Running now on this VPS** (`deploy/docker-compose.prod.yml`, project
+`kestrel-prod`): Postgres, a one-shot `migrate`, and `engine-sim`
+trading both sleeves on real prices. Metrics are on `127.0.0.1:9710`,
+Postgres publishes no host port, and memory is hard-capped. Started
+2026-11-20 ~14:00 UTC; its first real decisions are the 16:00 UTC
+crypto bar and the 16:30 London equities close.
+
+### What's built
+
+- **`Dockerfile`**: pinned uv 0.13.7, `--frozen` lockfile, runs as uid
+  10001. 1.06 GB; it was 2.55 GB before removing the uv cache and the
+  `chown -R` layer.
+- **Prod compose**:
+  - `engine-sim`.
+  - `engine-sandbox` + `ib-gateway` (profile `sandbox`). The image is
+    pinned to `10.50.1h`, because upstream moves from IBC to
+    "ibcontroller" no earlier than 2027-01-10. The gateway has **no
+    host ports**; the engine reaches it on the compose network.
+  - Healthchecks, restart policies and memory limits on every service.
+- **Metrics** (`observability/metrics.py`, spec Section 9 names). There
+  are also a provisioned **Grafana dashboard**
+  (`deploy/grafana/kestrel-dashboard.json`) and **alert rules**
+  (`deploy/grafana/provisioning/alerting/`): engine heartbeat missing
+  (fires on *no data*, so a dead engine alerts too), kill switch,
+  reconciliation, and stale data per sleeve. They're Grafana-managed,
+  since this box's Prometheus has no Alertmanager.
+- **Backups**: `deploy/backup/kestrel-backup.sh` (pg_dump `-Fc`,
+  verified with `pg_restore --list`, 14-day retention) plus a systemd
+  timer. **The restore drill was run** against a scratch database: all
+  tables came back.
+- **`deploy/deploy.sh`** (git pull, build or pull from GHCR, migrate,
+  up, smoke test) and `make deploy DEPLOY_HOST=...`. CI now builds the
+  image on every push and pushes `ghcr.io/<repo>:<sha>` from `main`.
+- **[docs/runbook.md](runbook.md)**: start/stop, deploy and roll back,
+  emergency stop, each kill switch and alert, IB Gateway, key rotation,
+  restore, memory budget.
+
+### Found while deploying (real, not hypothetical)
+
+1. **Permission denied on every feed write in the container**: uid 10001
+   vs root-owned bind mounts. The **`error_burst` kill switch tripped
+   within the first cycle**, did its job (equities halted, alert
+   raised), and was reset by hand with `kestrel admin reset-kill-switch`
+   once fixed. `deploy.sh` now chowns the data directories. The trap,
+   running data commands on the host as root, is in the runbook.
+2. **The validation job was OOM-killed inside its 512 MB container.**
+   The block bootstrap materialised all 2,000 resamples at once
+   (~320 MB). Now chunked: identical results, peak RSS 230 MB.
+3. **This VPS has 3.7 GiB and no swap**, and VS Code server plus a
+   Claude session take ~2 GiB while connected. `sim` fits comfortably;
+   the IB Gateway (Java, 600–900 MB) is tight while an editor session is
+   attached. See the runbook's memory budget.
+
+### Waiting on you (I prepared these, nothing applied outside the project)
+
+- **ntfy isn't installed on this box**, although the spec lists it as
+  existing. Until `KESTREL_NTFY_URL` is set, alerts are logged, not
+  pushed. That blocks this phase's "a stale feed fires an alert to my
+  phone" check.
+- **Prometheus scrape job**: `deploy/prometheus/kestrel-scrape.yml`
+  (append and reload).
+- **Grafana**: dashboard provider + JSON, alert rules (fill in the
+  Prometheus datasource uid and the ntfy URL), and one child
+  notification policy added by hand. The file explains why it doesn't
+  provision policies: that would replace your existing routing tree.
+- **Backup timer**: `deploy/backup/kestrel-backup.{service,timer}` into
+  `/etc/systemd/system`.
+- **Reboot test**: Docker is enabled at boot and every container is
+  `unless-stopped`, so a reboot should bring the stack back. I haven't
+  rebooted a box that also runs your VPN, DNS and other services.
+
+---
+
 ## Phase 4: Paper trading (`sim` and `sandbox`) — built; `sandbox` blocked on credentials
 
 `kestrel run --mode sim` runs both sleeves against real prices (Kraken

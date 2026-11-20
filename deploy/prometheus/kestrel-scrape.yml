@@ -1,0 +1,11 @@
+# Append under `scrape_configs:` in /etc/prometheus/prometheus.yml
+# (shown to you first, per SPEC Section 10), then:
+#   promtool check config /etc/prometheus/prometheus.yml && systemctl reload prometheus
+# Both ports are published on 127.0.0.1 only (ADR 0003).
+  - job_name: kestrel
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["127.0.0.1:9710"]
+        labels: { engine: sim }
+      - targets: ["127.0.0.1:9711"]
+        labels: { engine: sandbox }

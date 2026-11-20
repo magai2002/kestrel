@@ -127,9 +127,17 @@ def _set_paused(mode: str, sleeve: str, paused: bool) -> None:
     from live.state import SqlStateStore
 
     settings = Settings()
+    names = SLEEVES if sleeve == "all" else (sleeve,)
     with Session(create_engine(settings.postgres_dsn)) as s:
-        SqlStateStore(s).set_paused(mode, sleeve, paused)
-    typer.echo(f"{mode}/{sleeve}: {'paused' if paused else 'resumed'} (takes effect next cycle)")
+        store = SqlStateStore(s)
+        for name in names:
+            try:
+                store.set_paused(mode, name, paused)
+            except KeyError as exc:
+                typer.echo(f"{mode}/{name}: {exc}", err=True)
+                continue
+            verb = "paused" if paused else "resumed"
+            typer.echo(f"{mode}/{name}: {verb} (takes effect next cycle)")
 
 
 @admin_app.command("pause")

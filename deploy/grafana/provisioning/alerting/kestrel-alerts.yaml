@@ -1,0 +1,156 @@
+# Grafana-managed alert rules for kestrel (SPEC Section 9). Grafana
+# alerting rather than Prometheus rules because this box runs Prometheus
+# without an Alertmanager.
+#
+# Before applying (shown to you first, per SPEC Section 10):
+#   1. Replace REPLACE_WITH_PROMETHEUS_DATASOURCE_UID (Grafana -> Connections
+#      -> Data sources -> Prometheus -> the uid in the URL).
+#   2. Set the ntfy URL/topic in the contact point at the bottom.
+#   3. cp to /etc/grafana/provisioning/alerting/ && systemctl restart grafana-server
+#
+# The engine's own kill switches already alert via ntfy directly
+# (observability/alerts.py). These rules are the second line: they also
+# fire when the engine process itself is dead and can't alert.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: kestrel
+    folder: kestrel
+    interval: 1m
+    rules:
+      - uid: kestrel-engine-down
+        title: "kestrel: engine heartbeat missing"
+        condition: C
+        for: 5m
+        noDataState: Alerting # no metrics at all = engine down = alert
+        execErrState: Alerting
+        labels: { app: kestrel, severity: critical }
+        annotations:
+          summary: "No engine heartbeat for 5+ minutes ({{ $labels.instance }}). Container down or hung."
+          runbook_url: "docs/runbook.md#engine-heartbeat-missing"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: REPLACE_WITH_PROMETHEUS_DATASOURCE_UID
+            model: { refId: A, instant: true, expr: 'time() - kestrel_last_success_unixtime{component="engine"}' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [300] } }]
+
+      - uid: kestrel-kill-switch
+        title: "kestrel: kill switch tripped"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Alerting
+        labels: { app: kestrel, severity: critical }
+        annotations:
+          summary: "{{ $labels.mode }}/{{ $labels.sleeve }}: kill switch {{ $labels.name }} tripped. Stays tripped until reset by hand."
+          runbook_url: "docs/runbook.md#kill-switch-tripped"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: REPLACE_WITH_PROMETHEUS_DATASOURCE_UID
+            model: { refId: A, instant: true, expr: "kestrel_kill_switch_tripped" }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: kestrel-reconcile
+        title: "kestrel: reconciliation mismatch"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Alerting
+        labels: { app: kestrel, severity: critical }
+        annotations:
+          summary: "{{ $labels.mode }}/{{ $labels.sleeve }}: ledger and venue disagree."
+          runbook_url: "docs/runbook.md#reconciliation-mismatch"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: REPLACE_WITH_PROMETHEUS_DATASOURCE_UID
+            model: { refId: A, instant: true, expr: "kestrel_reconcile_mismatch" }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: kestrel-stale-crypto
+        title: "kestrel: crypto data stale / no cycle in 2 bars"
+        condition: C
+        for: 10m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels: { app: kestrel, severity: warning }
+        annotations:
+          summary: "{{ $labels.mode }}: crypto's latest closed 4h bar is older than 2 bars (8h)."
+          runbook_url: "docs/runbook.md#data-stale"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: REPLACE_WITH_PROMETHEUS_DATASOURCE_UID
+            model: { refId: A, instant: true, expr: 'max by (mode) (time() - kestrel_last_bar_close_timestamp{sleeve="crypto"})' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [28800] } }]
+
+      - uid: kestrel-stale-equities
+        title: "kestrel: equities data stale / no cycle in 2 sessions"
+        condition: C
+        for: 30m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels: { app: kestrel, severity: warning }
+        annotations:
+          # 4 calendar days: survives a weekend + a bank holiday. The engine's
+          # own stale-data switch counts real LSE sessions; this is the backstop.
+          summary: "{{ $labels.mode }}: equities' latest closed daily bar is older than 4 days."
+          runbook_url: "docs/runbook.md#data-stale"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: REPLACE_WITH_PROMETHEUS_DATASOURCE_UID
+            model: { refId: A, instant: true, expr: 'max by (mode) (time() - kestrel_last_bar_close_timestamp{sleeve="equities"})' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [345600] } }]
+
+contactPoints:
+  - orgId: 1
+    name: kestrel-ntfy
+    receivers:
+      - uid: kestrel-ntfy-webhook
+        type: webhook
+        settings:
+          # ntfy accepts a plain POST to {base}/{topic}; Grafana posts its JSON
+          # alert payload as the message body.
+          url: REPLACE_WITH_NTFY_URL/kestrel
+          httpMethod: POST
+
+# Deliberately NO `policies:` block: provisioning one replaces Grafana's
+# *whole* notification policy tree for the org, which would clobber
+# routing for every other dashboard on this box. Add one nested policy by
+# hand instead (Alerting -> Notification policies -> + New child policy):
+#   matcher app = kestrel, contact point kestrel-ntfy,
+#   group by alertname, mode, sleeve; repeat interval 4h.

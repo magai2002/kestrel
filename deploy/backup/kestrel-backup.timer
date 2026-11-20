@@ -1,0 +1,11 @@
+[Unit]
+Description=Run kestrel backup nightly
+
+[Timer]
+# 03:17 UTC: between crypto bars (00:00/04:00) and far from the LSE close.
+OnCalendar=*-*-* 03:17:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -220,12 +220,19 @@ def block_bootstrap_sharpe_ci(
     n_blocks = math.ceil(n / block_length)
     starts = rng.integers(0, n - block_length + 1, size=(n_resamples, n_blocks))
     offsets = np.arange(block_length)
-    idx = (starts[:, :, None] + offsets[None, None, :]).reshape(n_resamples, -1)[:, :n]
-    samples = r[idx]
-    sd = samples.std(axis=1, ddof=1)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        sharpes = np.where(sd > 0, samples.mean(axis=1) / sd, np.nan) * ann
-    sharpes = sharpes[np.isfinite(sharpes)]
+    # In chunks: materialising every resample at once (2000 x ~10k bars of
+    # int64 indices + float samples, ~320 MB) got the validation job
+    # OOM-killed inside its 512 MB container. Same numbers, bounded memory.
+    out = np.empty(n_resamples)
+    chunk = 100
+    for lo in range(0, n_resamples, chunk):
+        s = starts[lo : lo + chunk]
+        idx = (s[:, :, None] + offsets[None, None, :]).reshape(len(s), -1)[:, :n]
+        samples = r[idx]
+        sd = samples.std(axis=1, ddof=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out[lo : lo + chunk] = np.where(sd > 0, samples.mean(axis=1) / sd, np.nan) * ann
+    sharpes = out[np.isfinite(out)]
     alpha = (1 - confidence) / 2
     return BootstrapCI(
         sharpe=point,

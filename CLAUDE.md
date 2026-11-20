@@ -14,7 +14,11 @@ make typecheck      # mypy (strict on core/, execution/, risk/)
 make test            # pytest (excludes -m integration)
 make ci               # lint + typecheck + test, what CI runs
 
-make up               # docker compose up postgres (127.0.0.1:5432 only)
+make up               # LOCAL DEV postgres only (docker-compose.yml, 127.0.0.1:5432)
+make prod-up          # production stack (deploy/docker-compose.prod.yml): postgres + migrate + engine-sim
+make prod-logs        # follow engine-sim's JSON logs
+make backup           # pg_dump the prod DB (see docs/runbook.md for restore)
+make deploy DEPLOY_HOST=user@host   # ssh + deploy/deploy.sh
 make down            # docker compose down
 make migrate        # alembic upgrade head
 
@@ -232,6 +236,20 @@ and formatting *before* executing keeps outputs matching the source.)
   dedicated Parity and Golden testing layers.
 
 ## Gotchas
+
+- **Two Postgres instances on the VPS**: `kestrel-postgres-1` (local dev
+  compose, `127.0.0.1:5432`; tests and host-side `uv run` use it) and
+  `kestrel-prod-postgres-1` (prod stack, no host port; reach it via
+  `docker compose -f deploy/docker-compose.prod.yml exec postgres psql -U kestrel`).
+  `engine-sim` writes to the *prod* one. Run prod one-offs inside the stack:
+  `docker compose -f deploy/docker-compose.prod.yml run --rm --no-deps engine-sim <kestrel args>`.
+- **Containers run as uid 10001** and bind-mount `market_data/` and
+  `reports/`. Host-side data commands run as root create files the
+  engine can't overwrite (Permission denied -> `error_burst` kill
+  switch). `deploy/deploy.sh` re-chowns; see docs/runbook.md.
+- **The VPS has 3.7 GiB RAM and no swap.** Every container has a hard
+  `mem_limit`; keep one-off jobs streaming or chunked (the validation
+  bootstrap was OOM-killed at 512 MB before it was chunked).
 
 - `uv`/`docker` were not installed on this VPS before Phase 0; both are
   now (`source ~/.local/bin/env` for `uv`'s PATH entry in a fresh

@@ -1,0 +1,12 @@
+# Grafana dashboard provider for kestrel. To apply (shown to you first,
+# per SPEC Section 10), copy to /etc/grafana/provisioning/dashboards/ and
+# copy kestrel-dashboard.json to the `path` below, then restart Grafana.
+apiVersion: 1
+providers:
+  - name: kestrel
+    folder: kestrel
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards/kestrel

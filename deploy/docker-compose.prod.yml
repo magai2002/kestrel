@@ -1,0 +1,121 @@
+# Production stack (spec Section 10). Run from the repo root:
+#
+#   docker compose -f deploy/docker-compose.prod.yml up -d                     # postgres + migrate + engine-sim
+#   docker compose -f deploy/docker-compose.prod.yml --profile sandbox up -d   # + ib-gateway + engine-sandbox
+#
+# Every published port binds 127.0.0.1 (ADR 0003: Docker's iptables rules
+# bypass UFW). Postgres and the IB Gateway publish NO host ports at all:
+# only containers on this compose network can reach them.
+#
+# Memory limits are hard caps so the bot can never starve the VPN, DNS
+# or Nginx on this box (spec Section 2). The box has 3.7 GiB and no swap;
+# see docs/runbook.md "Memory budget" before raising any of these.
+name: kestrel-prod
+
+x-engine: &engine
+  image: kestrel:${KESTREL_IMAGE_TAG:-local}
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  env_file: ../.env
+  environment: &engine-env
+    KESTREL_POSTGRES_DSN: postgresql+psycopg://kestrel:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/kestrel
+    KESTREL_DATA_DIR: /data
+    KESTREL_REPORTS_DIR: /reports
+    KESTREL_METRICS_ADDR: 0.0.0.0 # inside the container's own network namespace only
+    KESTREL_METRICS_PORT: "9710"
+    KESTREL_LOG_JSON: "true"
+  volumes:
+    - ../market_data:/data
+    - ../reports:/reports
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+  mem_limit: 512m
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9710/metrics', timeout=3)"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 120s
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kestrel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: kestrel
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestrel"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 512m
+
+  migrate:
+    <<: *engine
+    restart: "no"
+    entrypoint: ["alembic"]
+    command: ["upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    mem_limit: 256m
+
+  engine-sim:
+    <<: *engine
+    command: ["run", "--mode", "sim", "--sleeve", "all"]
+    ports:
+      - "127.0.0.1:9710:9710"
+
+  engine-sandbox:
+    <<: *engine
+    profiles: ["sandbox"]
+    command: ["run", "--mode", "sandbox", "--sleeve", "all"]
+    environment:
+      <<: *engine-env
+      KESTREL_IBKR_HOST: ib-gateway
+      KESTREL_IBKR_PAPER_PORT: "4004" # the image's socat relay for the paper API
+    ports:
+      - "127.0.0.1:9711:9710"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      ib-gateway:
+        condition: service_started
+
+  ib-gateway:
+    # Pinned to an exact IBC-era tag: the upstream image moves from IBC to
+    # "ibcontroller" (breaking compose/env files) no earlier than 2027-01-10.
+    image: ghcr.io/gnzsnz/ib-gateway:10.50.1h
+    profiles: ["sandbox"]
+    restart: unless-stopped
+    env_file: ibgateway.env # TWS_USERID / TWS_PASSWORD live here, chmod 600, never committed
+    environment:
+      TRADING_MODE: paper
+      READ_ONLY_API: "no"
+      TWOFA_TIMEOUT_ACTION: restart
+      RELOGIN_AFTER_TWOFA_TIMEOUT: "yes"
+      AUTO_RESTART_TIME: "11:59 PM"
+      TIME_ZONE: Etc/UTC
+      TZ: Etc/UTC
+      JAVA_HEAP_SIZE: "768"
+    # No ports: the API is unauthenticated and unencrypted (the image's own
+    # README rates host exposure "Not recommended"). engine-sandbox reaches
+    # it as ib-gateway:4004 on this compose network.
+    mem_limit: 1100m
+
+  # api: Phase 6.
+
+volumes:
+  pgdata:
