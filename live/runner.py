@@ -21,7 +21,7 @@ import signal
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from functools import partial
 
 import structlog
@@ -66,16 +66,29 @@ def run_forever(
     retry_seconds: float = 60,
     max_wait: timedelta = timedelta(minutes=30),
     heartbeat: Callable[[datetime], None] | None = None,
+    daily: list[tuple[time, Callable[[datetime], None]]] | None = None,
 ) -> None:
+    """``daily``: (UTC time of day, task) pairs, e.g. the nightly shadow
+    backtest. Run in this process between cycles (cheaper than another
+    container on a 3.7 GiB box); a failing task is logged, never fatal."""
     now = clock.now()
     slots: list[_Slot] = []
     for rt in runtimes:
         _safe_cycle(rt, partial(run_once, rt, now))
         slots.append(_next_slot(rt, now))
+    last_daily: dict[int, str] = {}
     while not stop.is_set():
         now = clock.now()
         if heartbeat:
             heartbeat(now)
+        for i, (at, task) in enumerate(daily or []):
+            today = now.date().isoformat()
+            if now.time() >= at and last_daily.get(i) != today:
+                last_daily[i] = today
+                try:
+                    task(now)
+                except Exception:
+                    log.exception("daily_task_failed", task=getattr(task, "__name__", str(task)))
         due = [s for s in slots if s.due <= now]
         if not due:
             wait = min((s.due - now).total_seconds() for s in slots)

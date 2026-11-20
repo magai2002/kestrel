@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from core.order import Order
+from core.order import Order, OrderSide
 from risk.limits import RiskLimits
 
 
@@ -109,11 +109,22 @@ def evaluate_order(
     ``reference_price`` is the order's limit price if it has one,
     otherwise ``last_trade_price`` (a market order has no price of its
     own to check a band against except the price it would fill near).
+
+    **Exposure checks don't apply to sells.** Long-only (design rule 1),
+    a sell can only lower the instrument's weight, its group's and the
+    gross total, so rejecting one for an exposure breach would block
+    the very trade that reduces it. Sells still face the fat-finger,
+    price-band and lot/min-notional checks.
     """
+    exposure_checks: tuple[RiskDecision, ...] = ()
+    if order.side is not OrderSide.SELL:
+        exposure_checks = (
+            check_weight_cap(proposed_weights.get(order.instrument_id, 0.0), limits),
+            check_group_cap(order.instrument_id, proposed_weights, limits),
+            check_gross_exposure(proposed_weights, limits),
+        )
     checks = (
-        check_weight_cap(proposed_weights.get(order.instrument_id, 0.0), limits),
-        check_group_cap(order.instrument_id, proposed_weights, limits),
-        check_gross_exposure(proposed_weights, limits),
+        *exposure_checks,
         check_max_order_notional(order.quantity * reference_price, sleeve_equity, limits),
         check_price_band(reference_price, last_trade_price, limits),
         check_lot_and_notional(order.quantity, reference_price, step_size, min_notional),

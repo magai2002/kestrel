@@ -115,7 +115,37 @@ services:
     # it as ib-gateway:4004 on this compose network.
     mem_limit: 1100m
 
-  # api: Phase 6.
+  # Public read-only API + dashboard. Host Nginx proxies the subdomain to
+  # 127.0.0.1:8710 (deploy/nginx/kestrel.conf). Never the admin app.
+  api:
+    <<: *engine
+    command: ["api", "--role", "public", "--host", "0.0.0.0", "--port", "8710"]
+    environment:
+      <<: *engine-env
+      KESTREL_TRUSTED_PROXIES: "127.0.0.1/32,172.16.0.0/12"
+    ports:
+      - "127.0.0.1:8710:8710"
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8710/api/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # Admin API (ADR 0006): loopback-only port, never proxied, token required.
+  # Reach it from your laptop with: ssh -L 8711:127.0.0.1:8711 <server>
+  api-admin:
+    <<: *engine
+    command: ["api", "--role", "admin", "--host", "0.0.0.0", "--port", "8711"]
+    environment:
+      <<: *engine-env
+      KESTREL_ADMIN_TOKEN: ${KESTREL_ADMIN_TOKEN:?set KESTREL_ADMIN_TOKEN in deploy/.env}
+    ports:
+      - "127.0.0.1:8711:8711"
+    mem_limit: 192m
+    healthcheck:
+      disable: true
 
 volumes:
   pgdata:

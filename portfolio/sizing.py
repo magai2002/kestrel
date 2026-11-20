@@ -19,12 +19,23 @@ target wouldn't be.
 
 from __future__ import annotations
 
+from typing import overload
+
+import numpy as np
 import pandas as pd
 
 
+@overload
+def vol_target_weight(target_vol_annual: float, realized_vol_annual: float) -> float: ...
+@overload
+def vol_target_weight(target_vol_annual: float, realized_vol_annual: pd.Series) -> pd.Series: ...
+@overload
+def vol_target_weight(target_vol_annual: float, realized_vol_annual: np.ndarray) -> np.ndarray: ...
+
+
 def vol_target_weight(
-    target_vol_annual: float, realized_vol_annual: float | pd.Series
-) -> float | pd.Series:
+    target_vol_annual: float, realized_vol_annual: float | pd.Series | np.ndarray
+) -> float | pd.Series | np.ndarray:
     """Fraction of sleeve equity that would hit ``target_vol_annual``
     given an instrument's realized annualised volatility.
 
@@ -40,6 +51,10 @@ def vol_target_weight(
     if isinstance(realized_vol_annual, pd.Series):
         safe = realized_vol_annual.where(realized_vol_annual > 0)
         return (target_vol_annual / safe).fillna(0.0)
+    if isinstance(realized_vol_annual, np.ndarray):
+        # Same rule as the Series branch: zero where vol <= 0 or NaN.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.where(realized_vol_annual > 0, target_vol_annual / realized_vol_annual, 0.0)
     if realized_vol_annual <= 0 or realized_vol_annual != realized_vol_annual:  # NaN check
         return 0.0
     return target_vol_annual / realized_vol_annual

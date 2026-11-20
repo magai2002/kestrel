@@ -36,6 +36,12 @@ uv run kestrel run --mode sim                 # the live loop (sandbox needs tes
 uv run kestrel admin status                   # heartbeat, last bar, positions, tripped kill switches
 uv run kestrel admin reset-kill-switch --mode sim --sleeve crypto --name all
 uv run kestrel ibkr contracts                 # qualify UCITS twins against a running IB Gateway
+uv run kestrel shadow --mode sim              # shadow backtest now (normally nightly, 00:20 UTC, inside `run`)
+uv run kestrel api --role public              # read-only API + dashboard on 127.0.0.1:8710
+make demo                                     # fresh-clone demo: committed sample, no DB, < 1 min
+
+# Dashboard (web/): no Node on the host -- build in the pinned image
+docker run --rm -v "$PWD/web":/web -w /web node:22.11.0-alpine sh -c "npm ci && npm run build"
 uv run pytest -m integration                  # opt-in real-network venue checks
 ```
 
@@ -91,6 +97,16 @@ and formatting *before* executing keeps outputs matching the source.)
   never change `KESTREL_NAMESPACE`.
 - **`live` mode is locked** (`live/gates.py`) until Phase 7's gates. The
   Kraken/IBKR-live adapters must stay unconstructable outside that path.
+- **The buffered vector must fit the limits, not just the targets**
+  (`portfolio/rebalance.py::fit_to_limits`): untraded positions drift.
+  Trading assets absorb an excess first; held positions are force-trimmed
+  only above `FORCE_TRIM_TOLERANCE`. And **pre-trade exposure checks never
+  apply to sells** (long-only: a sell only reduces exposure). Without
+  both, the 10-ETF backtest rejected 224 of 311 orders.
+- **The public API returns only shareable numbers** (index-100 equity,
+  weights %, bps). Never cash, quantities, notionals, fees in currency or
+  account ids; `tests/unit/api/test_api.py` seeds such values and greps
+  for leaks. Admin is a *separate app* on a loopback port (ADR 0006).
 - **Target weights go through `portfolio/constraints.py` before orders**:
   clip per instrument, scale groups and gross *down*. Pre-trade risk
   checks are the last-line guard; if they reject a weight/group/gross
@@ -219,6 +235,15 @@ and formatting *before* executing keeps outputs matching the source.)
   only real-time code), `build.py` (mode -> feed/broker), `feeds.py`,
   `state.py` (Postgres state + in-memory twin), `reconcile.py`,
   `schedule.py`, `gates.py`, `commands.py` (`run`/`admin`/`ibkr` CLI).
+- `api/` — `app.py` (`create_public_app`: read-only, rate-limited, serves
+  `web/dist`; `create_admin_app`: loopback + token), `queries.py`,
+  `ratelimit.py` (token bucket; X-Forwarded-For only from trusted CIDRs).
+- `web/` — React + Vite + TS dashboard (TanStack Query, Lightweight
+  Charts): Overview, Trades, Strategies, Live vs backtest, How it works.
+  Built inside the Dockerfile's `web` stage.
+- `live/shadow.py` — nightly shadow backtest of the live period ->
+  `backtest_runs` (`kind = shadow:<mode>`) -> `/api/tracking`.
+- `demo/market_data/` — committed Yahoo sample (10 US ETFs) for `make demo`.
 - `observability/` — `logging.py` (structlog JSON), `alerts.py` (ntfy,
   rate-limited), `metrics.py` (Prometheus, spec Section 9 names).
 - `backtest/` — `engine.py` (the event-driven loop), `results.py`

@@ -71,3 +71,36 @@ def test_constrained_weights_always_pass_pre_trade_checks(weights: dict[str, flo
         assert v >= 0
         assert check_weight_cap(v, LIMITS).approved
         assert check_group_cap(k, out, LIMITS).approved
+
+
+def test_plan_rebalance_trades_down_a_drifted_position_even_inside_the_buffer() -> None:
+    """Regression (Phase 6, real 10-ETF backtest): an untraded asset that
+    drifted above its cap used to stay there, and the group/gross check
+    then rejected every order in the group."""
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from portfolio.rebalance import plan_rebalance
+
+    limits = RiskLimits(
+        per_instrument_weight_cap=0.30,
+        group_caps=(GroupCap(name="eq", instrument_ids=("A", "B"), cap=0.60),),
+    )
+    # A has drifted to 34% (cap 30%); target 30% is inside the 10-point buffer.
+    plan = plan_rebalance(
+        raw_target_weights={"A": 0.30, "B": 0.30},
+        held_quantities={"A": Decimal(34), "B": Decimal(20)},
+        last_prices={"A": Decimal(100), "B": Decimal(100)},
+        sleeve_equity=Decimal(10_000),
+        symbols={"A": "A", "B": "B"},
+        step_sizes={"A": Decimal(1), "B": Decimal(1)},
+        min_notionals={"A": Decimal(0), "B": Decimal(0)},
+        risk_limits=limits,
+        buffer_pct=0.10,
+        sleeve="s",
+        strategy="t",
+        bar_close_ts=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    assert plan.buffered_weights["A"] <= 0.30
+    assert any(o.instrument_id == "A" and o.side.value == "sell" for o in plan.approved)
+    assert plan.rejected == []

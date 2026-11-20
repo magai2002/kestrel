@@ -80,3 +80,19 @@ jobs:
             ghcr.io/${{ github.repository }}:main
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  web:
+    # Dashboard type-check + production build (same Node as the Dockerfile's web stage).
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.11.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build

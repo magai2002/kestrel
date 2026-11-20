@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     metrics_addr: str = "127.0.0.1"  # the container sets 0.0.0.0; Compose publishes on 127.0.0.1
     api_port: int = 8710
     admin_port: int = 8711
+    # Optional bearer token for the admin API (it is loopback-only and never
+    # proxied regardless; ADR 0006). Required if it is ever bound off loopback.
+    admin_token: SecretStr | None = None
+    # Comma-separated CIDRs whose X-Forwarded-For the public API trusts.
+    trusted_proxies: str = "127.0.0.1/32,::1/128"
 
     # --- misc ---
     log_level: str = "INFO"

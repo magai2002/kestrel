@@ -22,6 +22,73 @@ from portfolio.sizing import should_trade
 from risk.limits import RiskLimits
 from risk.pre_trade import RiskDecision, evaluate_order
 
+# Half a percentage point of sleeve equity: below this, a drifted
+# position over its cap is left alone (a buy that would worsen it is
+# still rejected by risk); above it, it's trimmed regardless of the buffer.
+FORCE_TRIM_TOLERANCE = 0.005
+
+
+def _absorb(weights: dict[str, float], members: list[str], excess: float) -> float:
+    """Scale ``members`` down proportionally to remove up to ``excess``;
+    returns what's left over (> 0 only if they all hit zero)."""
+    total = sum(weights[m] for m in members)
+    if total <= 0 or excess <= 0:
+        return max(excess, 0.0)
+    take = min(excess, total)
+    scale = 1.0 - take / total
+    for m in members:
+        weights[m] *= scale
+    return excess - take
+
+
+def fit_to_limits(
+    weights: dict[str, float], trading: set[str], limits: RiskLimits
+) -> dict[str, float]:
+    """Make the *buffered* weight vector — constrained targets for assets
+    being traded, drifted current weights for the rest — satisfy every
+    exposure limit.
+
+    Why this step exists (found on the real 10-ETF equities backtest in
+    Phase 6, 224 of 311 orders rejected): constraining only the strategy's
+    *targets* isn't enough. Buffering leaves untraded positions at their
+    drifted weights, which can push an instrument, a group or the gross
+    total over its cap. The pre-trade check then rejected every buy in the
+    group, every bar, forever.
+
+    The rule, in order, for each instrument cap, then each group, then
+    gross:
+
+    1. **Assets being traded absorb the excess first** (buys get sized
+       down). No extra orders: they were trading anyway.
+    2. **Only a material leftover** (> ``FORCE_TRIM_TOLERANCE``) trims
+       untraded positions too, which forces a risk-reducing sell inside
+       the buffer. Below it, the drift is left alone: forcing tiny trims
+       produced a stream of sub-minimum-notional orders (seen on the
+       golden run, where fees push a fully invested position ~0.4% over
+       100% gross).
+
+    Every step only scales weights down, so a later step never re-breaks
+    an earlier one.
+    """
+    w = dict(weights)
+    margin = 1.0 - 1e-9
+
+    def apply(members: list[str], cap: float) -> None:
+        excess = sum(w[m] for m in members) - cap * margin
+        if excess <= 1e-12:
+            return
+        movable = [m for m in members if m in trading]
+        left = _absorb(w, movable, excess)
+        if left > FORCE_TRIM_TOLERANCE:
+            _absorb(w, [m for m in members if m not in trading], left)
+
+    for aid in list(w):
+        apply([aid], limits.per_instrument_weight_cap)
+    for group in limits.group_caps:
+        apply([m for m in group.instrument_ids if m in w], group.cap)
+    apply(list(w), limits.gross_exposure_cap)
+    return w
+
 
 @dataclass(frozen=True)
 class RebalancePlan:
@@ -71,6 +138,13 @@ def plan_rebalance(
             # CLAUDE.md). Found on real BTC/ETH data in Phase 2.
             buffered[aid] = current
             targets[aid] = held
+
+    trading = {aid for aid in held_quantities if targets[aid] != held_quantities[aid]}
+    fitted = fit_to_limits(buffered, trading, risk_limits)
+    for aid, w in fitted.items():
+        if w < buffered[aid] - 1e-12:
+            buffered[aid] = w
+            targets[aid] = target_quantity(w, sleeve_equity, last_prices[aid], step_sizes[aid])
 
     proposed = propose_orders(targets, held_quantities, symbols, sleeve, strategy, bar_close_ts)
     approved: list[Order] = []

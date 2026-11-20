@@ -112,18 +112,26 @@ def _span_bars(days: float, bars_per_day: float) -> int:
 def _single_instrument_weight(
     price: pd.Series, params: TrendVolTargetParams, instrument_weight: float = 1.0
 ) -> pd.Series:
+    # pandas only for the windowed kernels (ewm, rolling); every
+    # elementwise step is numpy. Same arithmetic, same order, so the
+    # results are bit-identical (the golden hash didn't move), but pandas'
+    # per-call overhead on clip/where/replace was ~2/3 of an event
+    # backtest's runtime (Phase 6 profile: 4m15s for the equities sleeve).
     vol_span = _span_bars(params.vol_span_days, params.bars_per_day)
     returns = price.pct_change()
-    pct_vol = returns.ewm(span=vol_span, min_periods=vol_span).std()
-    price_vol = (pct_vol * price).replace(0.0, np.nan)
+    pct_vol_s = returns.ewm(span=vol_span, min_periods=vol_span).std()
+    pct_vol = pct_vol_s.to_numpy()
+    price_arr = price.to_numpy(dtype=float)
+    price_vol = pct_vol * price_arr
+    price_vol = np.where(price_vol == 0.0, np.nan, price_vol)
     scalar_window = required_lookback_bars(params)
 
     speed_forecasts = []
     for fast_days, slow_days in params.speeds_days:
         fast_span = _span_bars(fast_days, params.bars_per_day)
         slow_span = _span_bars(slow_days, params.bars_per_day)
-        ewma_fast = price.ewm(span=fast_span, min_periods=fast_span).mean()
-        ewma_slow = price.ewm(span=slow_span, min_periods=slow_span).mean()
+        ewma_fast = price.ewm(span=fast_span, min_periods=fast_span).mean().to_numpy()
+        ewma_slow = price.ewm(span=slow_span, min_periods=slow_span).mean().to_numpy()
         normalized = (ewma_fast - ewma_slow) / price_vol
 
         # Rolling, not a whole-series .mean(): a single scalar fit on
@@ -134,13 +142,19 @@ def _single_instrument_weight(
         # the same size as required_lookback_bars keeps this exactly
         # consistent with the Strategy-protocol wrapper's windowed
         # replay below, instead of merely approximately so.
-        mean_abs = normalized.abs().rolling(scalar_window, min_periods=vol_span).mean()
-        scalar = params.forecast_target / mean_abs.replace(0.0, np.nan)
-        scaled = (normalized * scalar).clip(-params.forecast_cap, params.forecast_cap).fillna(0.0)
-        speed_forecasts.append(scaled)
+        mean_abs = (
+            pd.Series(np.abs(normalized))
+            .rolling(scalar_window, min_periods=vol_span)
+            .mean()
+            .to_numpy()
+        )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            scalar = params.forecast_target / np.where(mean_abs == 0.0, np.nan, mean_abs)
+            scaled = np.clip(normalized * scalar, -params.forecast_cap, params.forecast_cap)
+        speed_forecasts.append(np.where(np.isnan(scaled), 0.0, scaled))
 
-    combined_forecast = pd.concat(speed_forecasts, axis=1).mean(axis=1)
-    long_only_forecast = combined_forecast.clip(lower=0.0)
+    combined_forecast = pd.DataFrame(np.column_stack(speed_forecasts)).mean(axis=1).to_numpy()
+    long_only_forecast = np.maximum(combined_forecast, 0.0)
 
     annualized_vol = pct_vol * math.sqrt(params.periods_per_year)
     # Shared with the event-driven engine's per-bar sizing --
@@ -153,7 +167,8 @@ def _single_instrument_weight(
         * instrument_weight
         * params.idm
     )
-    return position_weight.clip(0.0, 1.0).fillna(0.0)
+    clipped = np.clip(position_weight, 0.0, 1.0)
+    return pd.Series(np.where(np.isnan(clipped), 0.0, clipped), index=price.index)
 
 
 def compute_weights(prices: pd.DataFrame, params: TrendVolTargetParams) -> pd.DataFrame:

@@ -22,6 +22,8 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "ib-async>=2.0",
     "prometheus-client>=0.21",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
 ]
 
 [project.scripts]
@@ -82,6 +84,11 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 ignore = ["E501"]  # formatter handles line length; don't double up with the linter
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom (`s: Session = Depends(db)`) isn't the
+# mutable-default bug B008 exists to catch.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["core", "config", "data", "strategies", "portfolio", "risk", "execution", "backtest", "research", "live", "api", "observability"]

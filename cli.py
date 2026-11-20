@@ -43,6 +43,8 @@ app = typer.Typer(help="kestrel: multi-market systematic trading bot")
 data_app = typer.Typer(help="Fetch, store and validate market data")
 app.add_typer(data_app, name="data")
 app.command("run")(live_commands.run_cmd)
+app.command("shadow")(live_commands.shadow_cmd)
+app.command("api")(live_commands.api_cmd)
 app.add_typer(live_commands.admin_app, name="admin")
 app.add_typer(live_commands.ibkr_app, name="ibkr")
 
@@ -273,6 +275,12 @@ def sync_instruments() -> None:
 def backtest_cmd(
     strategy_name: str = typer.Argument(..., help="Strategy name, e.g. trend_vol_target"),
     sleeve: str = typer.Option(..., "--sleeve", help="Sleeve name: crypto or equities"),
+    start: str | None = typer.Option(
+        None, "--start", help="Trade from this date (YYYY-MM-DD); earlier bars are warm-up only"
+    ),
+    no_db: bool = typer.Option(
+        False, "--no-db", help="No Postgres: skip instrument metadata and the event log (demo)"
+    ),
 ) -> None:
     """Run the event-driven backtest engine on stored historical data
     and print a results summary (Phase 2's "done when": prints a
@@ -286,9 +294,14 @@ def backtest_cmd(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     strategy, warmup_bars = inputs.build_strategy(params, strategy_name)
+    if start is not None:
+        grid = pd.DatetimeIndex(next(iter(price_set.bars.values()))["open_time"])
+        warmup_bars = max(warmup_bars, int(grid.searchsorted(pd.Timestamp(start, tz="UTC"))))
 
-    engine = create_engine(settings.postgres_dsn)
-    with Session(engine) as session:
+    session: Session | None = None
+    if not no_db:
+        session = Session(create_engine(settings.postgres_dsn))
+    try:
         instruments, warnings = inputs.load_instruments(sleeve_config, "backtest", session)
         for warning in warnings:
             typer.echo(f"  warning: {warning}", err=True)
@@ -316,9 +329,13 @@ def backtest_cmd(
                 "params": params.model_dump(mode="json"),
             },
         )
+    finally:
+        if session is not None:
+            session.close()
 
     typer.echo(results.format_summary())
-    typer.echo(f"\nEvent log written to Postgres (run_id={run_id}).")
+    if session is not None:
+        typer.echo(f"\nEvent log written to Postgres (run_id={run_id}).")
 
 
 @app.command("validate")
@@ -331,13 +348,23 @@ def validate_cmd(
         help="Also evaluate the locked hold-out. Do this ONCE per strategy/sleeve, when final: "
         "every access is recorded and a second one marks the report contaminated.",
     ),
+    no_db: bool = typer.Option(
+        False, "--no-db", help="In-memory trial ledger, no Postgres (demo). Refused with --holdout."
+    ),
 ) -> None:
     """Walk-forward validation with DSR, PBO, bootstrap, cost
     sensitivity and per-year/regime tables. Writes
     reports/<run_id>/report.{html,json}."""
-    from research import report_html, validation
-    from research.ledger import SqlLedger
+    from contextlib import nullcontext
 
+    from research import report_html, validation
+    from research.ledger import InMemoryLedger, Ledger, SqlLedger
+
+    if no_db and holdout:
+        # An in-memory ledger forgets every access: that would be a way
+        # around the hold-out lock, so it isn't offered.
+        typer.echo("--holdout needs the Postgres trial ledger; refusing with --no-db", err=True)
+        raise typer.Exit(code=2)
     settings = Settings()
     vconf = validation.load_validation_config()
     strategies = list(vconf.strategies) if strategy_name == "all" else [strategy_name]
@@ -347,7 +374,7 @@ def validate_cmd(
             typer.echo(f"no validation config for {name!r} in config/validation.yaml", err=True)
             raise typer.Exit(code=1)
 
-    engine = create_engine(settings.postgres_dsn)
+    engine = None if no_db else create_engine(settings.postgres_dsn)
     summary_path = settings.reports_dir / "summary.json"
     summary: dict[str, object] = (
         json.loads(summary_path.read_text()) if summary_path.exists() else {}
@@ -362,8 +389,8 @@ def validate_cmd(
             raise typer.Exit(code=1) from exc
         for name in strategies:
             run_id = str(uuid4())
-            with Session(engine) as session:
-                ledger = SqlLedger(session)
+            with Session(engine) if engine is not None else nullcontext() as session:
+                ledger: Ledger = SqlLedger(session) if session is not None else InMemoryLedger()
                 if holdout:
                     hs = price_set.close_panel.index[
                         int(len(price_set.close_panel) * (1 - vconf.holdout_fraction))
@@ -387,7 +414,7 @@ def validate_cmd(
             typer.echo(
                 f"{name:>24} / {sleeve_name:<8}  DSR {_fmt(h['dsr'])}  OOS Sharpe {_fmt(h['oos_sharpe'])}"
                 f"  (baseline {_fmt(h['baseline_oos_sharpe'])})  PBO {_fmt(h['pbo'])}  -> {verdict}"
-                f"   reports/{run_id}/report.html"
+                f"   {out_dir / 'report.html'}"
             )
             summary[f"{name}/{sleeve_name}"] = {
                 "run_id": run_id,

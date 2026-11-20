@@ -36,3 +36,11 @@ web/dist/
 deploy/.env
 deploy/*.env
 !deploy/*.env.example
+
+# web/ build output and deps
+web/node_modules/
+web/dist/
+
+# demo outputs (make demo)
+/demo/reports/
+web/*.tsbuildinfo

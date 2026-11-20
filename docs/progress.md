@@ -1,5 +1,68 @@
 # Progress
 
+## Phase 6: Dashboard, public API, GitHub polish — built and serving on 127.0.0.1; public URL awaits DNS + your OK
+
+### What's built
+
+- **Public API** (`api/app.py`, FastAPI): `/api/status`, `/equity`,
+  `/positions`, `/trades`, `/strategies`, `/strategies/{id}/report`,
+  `/tracking`, `/stream` (SSE).
+  - Only shareable numbers: equity indexed to 100, weights in %, bps. A
+    test seeds known cash, quantity and fee values and asserts none of
+    them appear in any response.
+  - Rate-limited in-app (token bucket per client; `X-Forwarded-For` is
+    trusted only from configured proxy ranges) and again in Nginx.
+  - Serves the built dashboard at `/`.
+- **Admin API**: a separate app and container on `127.0.0.1:8711`,
+  bearer token required, never proxied
+  ([ADR 0006](adr/0006-public-api-admin-boundary.md)). It's verified
+  running: 401 without the token.
+- **Nightly shadow backtest** (`live/shadow.py`, 00:20 UTC inside the
+  engine process): replays the bars `sim` actually consumed over the
+  live period and stores the live-vs-shadow curve for `/tracking`.
+- **Dashboard** (`web/`, React + Vite + TS, TanStack Query, Lightweight
+  Charts with TradingView attribution, dark amber + Plus Jakarta Sans):
+  Overview, Trades (with slippage and shortfall), Strategies (DSR, PBO,
+  OOS curve vs baseline, cost sensitivity, parameter heatmap), Live vs
+  backtest, How it works. It's built inside the Docker image (no Node on
+  the host) and in CI.
+- **`make demo`**: committed sample (10 US ETFs, daily, 2.7 MB), no
+  Postgres, no keys. It runs an event-driven backtest over ~2 years plus
+  the full walk-forward report in **52 s**. `--no-db` is refused together
+  with `--holdout`: an in-memory ledger would be a way around the lock.
+- **README** rewritten to spec Section 14, plus a **LICENSE** (MIT) and a
+  CI job for the frontend.
+
+### Found this phase (real bugs)
+
+1. **Buffering vs hard limits.** The first full 10-ETF event backtest
+   rejected **224 of 311 orders**. Buffering leaves untraded positions
+   at their drifted weights; the group/gross check, evaluated on that
+   whole vector, then rejected every buy in the group (and sells too,
+   which made it worse).
+   - `portfolio/rebalance.py::fit_to_limits` now makes the buffered
+     vector fit: trading assets absorb the excess first, and held
+     positions are trimmed only when materially over (0.5 pt).
+   - Exposure checks no longer apply to sells.
+   - Result: 137 orders, 0 rejected. The golden hash is unchanged
+     (single-asset behaviour identical). The *honest* Sharpe went from
+     0.69 to 0.64: the rejections had been quietly saving costs.
+2. **Event backtests were slow** (4 min 15 s for the ETF sleeve):
+   two-thirds of it pandas per-call overhead on `clip`/`where`/`replace`
+   inside `TrendVolTarget`. Those are now numpy, with bit-identical
+   results (golden hash unchanged), and the run takes 1 min 45 s.
+
+### Waiting on you
+
+- **DNS + Nginx + TLS** for the subdomain (`bot.alexeymagay.com`, the
+  spec's suggestion; say if you want another). The snippet and exact
+  commands are in `deploy/nginx/kestrel.conf`, not applied.
+- **Screenshots / GIF for the README**: there's no browser on this box.
+  Once the subdomain is live they're a two-minute job from your laptop.
+- **"What I learned"** in the README is yours to write.
+
+---
+
 ## Phase 5: Observability and VPS deployment — `sim` live on the VPS; host changes await your OK
 
 **Running now on this VPS** (`deploy/docker-compose.prod.yml`, project

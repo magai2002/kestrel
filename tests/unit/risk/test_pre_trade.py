@@ -127,3 +127,32 @@ def test_evaluate_order_reports_first_breached_check() -> None:
     )
     assert not decision.approved
     assert "cap" in decision.reason
+
+
+def test_sells_are_never_rejected_for_exposure() -> None:
+    """A sell reduces every exposure measure for a long-only book;
+    rejecting it for an exposure breach would block the fix."""
+    from datetime import UTC, datetime
+
+    from core.order import Order, OrderSide
+    from risk.limits import GroupCap, RiskLimits
+    from risk.pre_trade import evaluate_order
+
+    limits = RiskLimits(
+        per_instrument_weight_cap=0.3,
+        group_caps=(GroupCap(name="g", instrument_ids=("A", "B"), cap=0.5),),
+    )
+    over = {"A": 0.35, "B": 0.30}  # drifted above both caps
+    sell = Order("s-0", "A", OrderSide.SELL, Decimal("1"), datetime(2026, 1, 1, tzinfo=UTC))
+    buy = Order("b-0", "B", OrderSide.BUY, Decimal("1"), datetime(2026, 1, 1, tzinfo=UTC))
+    kw = dict(
+        reference_price=Decimal(100),
+        step_size=Decimal(0),
+        min_notional=Decimal(0),
+        proposed_weights=over,
+        sleeve_equity=Decimal(10_000),
+        last_trade_price=Decimal(100),
+        limits=limits,
+    )
+    assert evaluate_order(order=sell, **kw).approved  # type: ignore[arg-type]
+    assert not evaluate_order(order=buy, **kw).approved  # type: ignore[arg-type]

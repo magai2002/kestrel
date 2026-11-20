@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 from datetime import UTC, datetime
+from datetime import time as dtime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -90,7 +91,42 @@ def run_cmd(
         return
     stop = threading.Event()
     install_signal_handlers(stop)
-    run_forever(runtimes, clock, stop, heartbeat=hooks.heartbeat if hooks else None)
+
+    def nightly_shadow(now: datetime) -> None:
+        from live.shadow import run_shadow
+
+        for rt in runtimes:
+            result = run_shadow(mode, rt.name, settings, session, now)
+            typer.echo(
+                f"shadow {mode}/{rt.name}: {result.get('status')} gap={result.get('final_gap_points')}"
+            )
+
+    run_forever(
+        runtimes,
+        clock,
+        stop,
+        heartbeat=hooks.heartbeat if hooks else None,
+        daily=[
+            (dtime(0, 20), nightly_shadow)
+        ],  # 00:20 UTC, between the 00:00 and 04:00 crypto bars
+    )
+
+
+def shadow_cmd(
+    mode: str = typer.Option("sim", "--mode"),
+    sleeve: str = typer.Option("all", "--sleeve"),
+) -> None:
+    """Run the shadow backtest now (normally nightly inside `kestrel run`)."""
+    from live.shadow import run_shadow
+
+    settings = Settings()
+    with Session(create_engine(settings.postgres_dsn)) as s:
+        for name in SLEEVES if sleeve == "all" else (sleeve,):
+            r = run_shadow(mode, name, settings, s, datetime.now(UTC))
+            typer.echo(
+                f"shadow {mode}/{name}: {r.get('status')} bars={r.get('n_bars', r.get('n_live_bars'))} "
+                f"gap={r.get('final_gap_points')}"
+            )
 
 
 @admin_app.command("status")
@@ -252,3 +288,42 @@ def ibkr_contracts(
             s.commit()
     finally:
         ib.disconnect()
+
+
+def api_cmd(
+    role: str = typer.Option(
+        "public", "--role", help="public (proxied by Nginx) or admin (127.0.0.1 only)"
+    ),
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int | None = typer.Option(None, "--port"),
+) -> None:
+    """Serve the public read-only API + dashboard, or the admin API."""
+    from pathlib import Path
+
+    import uvicorn
+    from sqlalchemy.orm import sessionmaker
+
+    from api.app import create_admin_app, create_public_app
+    from api.ratelimit import set_trusted_proxies
+
+    settings = Settings()
+    set_trusted_proxies(settings.trusted_proxies)
+    obs_logging.configure(settings.log_level, settings.log_json)
+    factory = sessionmaker(create_engine(settings.postgres_dsn, pool_pre_ping=True))
+    if role == "public":
+        app = create_public_app(factory, web_dist=Path("web/dist"))
+        uvicorn.run(
+            app, host=host, port=port or settings.api_port, proxy_headers=False, access_log=False
+        )
+    elif role == "admin":
+        if host not in ("127.0.0.1", "::1", "localhost") and not settings.admin_token:
+            raise typer.BadParameter("admin API off loopback requires KESTREL_ADMIN_TOKEN")
+        token = settings.admin_token.get_secret_value() if settings.admin_token else None
+        uvicorn.run(
+            create_admin_app(factory, token),
+            host=host,
+            port=port or settings.admin_port,
+            access_log=False,
+        )
+    else:
+        raise typer.BadParameter("role must be public or admin")

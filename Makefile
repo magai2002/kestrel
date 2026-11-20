@@ -1,4 +1,4 @@
-.PHONY: setup lint fmt typecheck test up down migrate data data-crypto data-equities data-validate sync-instruments backtest validate notebook deploy prod-up prod-logs backup ci
+.PHONY: setup lint fmt typecheck test up down migrate data data-crypto data-equities data-validate sync-instruments backtest validate demo notebook deploy prod-up prod-logs backup ci
 
 UV := uv
 
@@ -54,6 +54,16 @@ backtest:
 ## both sleeves (hold-out NOT evaluated; see docs/validation-methodology.md).
 validate:
 	$(UV) run kestrel validate all --sleeve all
+
+## Phase 6: a fresh clone's one-command demo. Committed sample data (10 US
+## ETFs, daily, Yahoo, 2016+), no Postgres, no keys: the event-driven engine
+## over the last ~2 years (earlier bars = warm-up), then the full walk-forward
+## validation report. Under a minute on a 2-vCPU box.
+DEMO_ENV := KESTREL_DATA_DIR=demo/market_data KESTREL_REPORTS_DIR=demo/reports
+demo:
+	$(DEMO_ENV) $(UV) run kestrel backtest trend_vol_target --sleeve equities --start 2024-11-01 --no-db
+	$(DEMO_ENV) $(UV) run kestrel validate trend_vol_target --sleeve equities --no-db
+	@echo "\nOpen the report: demo/reports/<run_id>/report.html (path printed above)"
 
 ## Regenerate the Phase 1 notebook: build cells -> ruff-format them (CI's
 ## lint checks .ipynb too) -> execute in place, so committed source and
