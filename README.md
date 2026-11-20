@@ -11,8 +11,8 @@ walk-forward with full costs, the trial count it took to find it, and a
 locked hold-out, and the report says plainly when a strategy doesn't
 survive. Most don't.
 
-**Live dashboard:** `https://bot.alexeymagay.com` *(pending DNS + TLS; see
-[docs/progress.md](docs/progress.md))*. Paper trading. Not financial advice.
+**Live dashboard:** <https://bot.alexeymagay.com>. Paper trading. Not
+financial advice.
 
 ## What it does
 

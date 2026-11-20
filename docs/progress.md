@@ -145,9 +145,10 @@ locked, and today all seven fail (`kestrel live-check`).
 
 ### Waiting on you
 
-- **DNS + Nginx + TLS** for the subdomain (`bot.alexeymagay.com`, the
-  spec's suggestion; say if you want another). The snippet and exact
-  commands are in `deploy/nginx/kestrel.conf`, not applied.
+- ~~**DNS + Nginx + TLS** for the subdomain~~ Done 2026-11-20:
+  `https://bot.alexeymagay.com` (Cloudflare DNS-only, the
+  `deploy/nginx/kestrel.conf` block plus `certbot --nginx`, auto-renewing;
+  http redirects to https).
 - **Screenshots / GIF for the README**: there's no browser on this box.
   Once the subdomain is live they're a two-minute job from your laptop.
 - **"What I learned"** in the README is yours to write.
