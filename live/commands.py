@@ -327,3 +327,135 @@ def api_cmd(
         )
     else:
         raise typer.BadParameter("role must be public or admin")
+
+
+def live_check_cmd(sleeve: str = typer.Option("all", "--sleeve")) -> None:
+    """Print the spec Section 13 go-live checklist for each sleeve. Read-only."""
+    from live.gates import check_live_gates
+
+    settings = Settings()
+    any_failed = False
+    with Session(create_engine(settings.postgres_dsn)) as s:
+        for name in SLEEVES if sleeve == "all" else (sleeve,):
+            typer.echo(f"\n{name}:")
+            for g in check_live_gates(settings, name, s, datetime.now(UTC)):
+                any_failed = any_failed or not g.passed
+                typer.echo(f"  [{'PASS' if g.passed else 'FAIL'}] {g.number}. {g.name}: {g.detail}")
+    if any_failed:
+        typer.echo("\nlive mode stays locked until every gate passes.")
+        raise typer.Exit(code=1)
+
+
+@admin_app.command("record-rehearsal")
+def record_rehearsal(
+    sleeve: str = typer.Option(..., "--sleeve"),
+    by: str = typer.Option(..., "--by", help="Who ran it"),
+    notes: str = typer.Option("", "--notes", help="What happened, how long the stop took"),
+) -> None:
+    """Record that docs/runbook.md's emergency stop was rehearsed in
+    sandbox for this sleeve (Phase 7 gate 7). Run it right after doing it."""
+    from core.event_log import Event, EventType, write_events
+
+    settings = Settings()
+    with Session(create_engine(settings.postgres_dsn)) as s:
+        state = s.get(SleeveStateRecord, ("sandbox", sleeve))
+        if state is None:
+            typer.echo(
+                f"no sandbox state for {sleeve}: the rehearsal must be on a running sandbox",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        write_events(
+            s,
+            [
+                Event(
+                    "admin",
+                    sleeve,
+                    EventType.EMERGENCY_STOP_REHEARSAL,
+                    datetime.now(UTC),
+                    {"by": by, "notes": notes},
+                    mode="sandbox",
+                )
+            ],
+        )
+    typer.echo(f"recorded emergency-stop rehearsal for sandbox/{sleeve} by {by}")
+
+
+def tax_report_cmd(
+    year: int = typer.Option(..., "--year"),
+    mode: str = typer.Option("live", "--mode"),
+    out: str = typer.Option("", "--out", help="CSV path (default: reports/tax-<mode>-<year>.csv)"),
+) -> None:
+    """Per-year trade and fee CSV (spec Section 13 note: Belgian
+    declarations). One row per fill, with an estimated TOB from each
+    asset's configured rate. NOT tax advice; check the rates."""
+    import csv
+    from pathlib import Path
+
+    from core.orm import FillRecord
+
+    settings = Settings()
+    tob = {}
+    for name in SLEEVES:
+        for a in load_sleeve(name).assets:
+            tob[(name, a.id)] = (
+                a.costs.tob_pct,
+                a.costs.tob_cap,
+                a.live.symbol,
+                a.live.quote_currency,
+            )
+    path = Path(out) if out else settings.reports_dir / f"tax-{mode}-{year}.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    start, end = datetime(year, 1, 1, tzinfo=UTC), datetime(year + 1, 1, 1, tzinfo=UTC)
+    n = 0
+    with Session(create_engine(settings.postgres_dsn)) as s, path.open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(
+            [
+                "date_utc",
+                "sleeve",
+                "asset",
+                "symbol",
+                "side",
+                "quantity",
+                "price",
+                "currency",
+                "notional",
+                "fee_reported",
+                "tob_rate",
+                "tob_estimate",
+                "client_order_id",
+            ]
+        )
+        rows = s.scalars(
+            select(FillRecord)
+            .where(
+                FillRecord.mode == mode, FillRecord.timestamp >= start, FillRecord.timestamp < end
+            )
+            .order_by(FillRecord.timestamp)
+        )
+        for f in rows:
+            rate, cap, symbol, ccy = tob.get(
+                (f.sleeve, f.asset_id), (Decimal(0), None, f.asset_id, "?")
+            )
+            notional = f.quantity * f.price
+            est = notional * rate if cap is None else min(notional * rate, cap)
+            w.writerow(
+                [
+                    f.timestamp.isoformat(),
+                    f.sleeve,
+                    f.asset_id,
+                    symbol,
+                    f.side,
+                    f.quantity,
+                    f.price,
+                    ccy,
+                    notional,
+                    f.fee,
+                    rate,
+                    est.quantize(Decimal("0.01")),
+                    f.client_order_id,
+                ]
+            )
+            n += 1
+    typer.echo(f"{n} fills -> {path}  (TOB estimates use config rates; this is not tax advice)")

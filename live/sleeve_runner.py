@@ -99,6 +99,10 @@ class SleeveRuntime:
     quote_currency: str = "USD"
     history_bars: int = 3000  # how much stored history a decision sees
     on_cycle: Callable[[SleeveRuntime, CycleResult, dict[str, Any]], None] | None = None
+    # Live only (Phase 7): ledger seeded with, and sizing capped at, this
+    # capital; plus an absolute-currency daily loss limit.
+    capital_cap: Decimal | None = None
+    daily_loss_limit_abs: Decimal | None = None
 
     # -- small helpers -------------------------------------------------------
     @property
@@ -491,7 +495,10 @@ def run_cycle(
     sleeve = rt.sleeve
     state, paused = rt.store.load(rt.mode, rt.name)
     if state is None:
-        state = SleeveState.fresh(Decimal(str(sleeve.paper_capital)), sleeve.asset_ids, now)
+        capital = (
+            rt.capital_cap if rt.capital_cap is not None else Decimal(str(sleeve.paper_capital))
+        )
+        state = SleeveState.fresh(capital, sleeve.asset_ids, now)
         if rt.broker is not None:
             state.baseline = rt.broker.positions(list(rt.symbols().values()))
             events.append(
@@ -587,10 +594,22 @@ def run_cycle(
     eq_f = float(equity)
     day = bar_close.date().isoformat()
     if state.day != day:
-        state.day, state.day_open_equity = day, eq_f
+        # Measured from the last mark before the day began (yesterday's
+        # close), exactly like backtest/engine.py -- see the note there for
+        # the daily-bar bug this fixes.
+        prev = state.last_equity if state.last_equity is not None else float(state.initial_capital)
+        state.day, state.day_open_equity = day, prev
+    state.last_equity = eq_f
     state.equity_peak = max(state.equity_peak, eq_f)
     if r := ks.check_daily_loss(state.day_open_equity, eq_f, sleeve.risk.daily_loss_limit_pct):
         new_trips["daily_loss"] = r
+    if rt.daily_loss_limit_abs is not None:  # live only (Phase 7 gate 6): currency, not just %
+        lost = Decimal(str(state.day_open_equity)) - equity
+        if lost > rt.daily_loss_limit_abs:
+            new_trips["daily_loss"] = (
+                f"daily loss {lost:.2f} {sleeve.base_currency} exceeds absolute limit "
+                f"{rt.daily_loss_limit_abs}"
+            )
     if r := ks.check_drawdown(state.equity_peak, eq_f, sleeve.risk.drawdown_limit_pct):
         new_trips["drawdown"] = r
     if r := _stale_reason(rt, bar_close, now):
@@ -695,7 +714,8 @@ def run_cycle(
         raw_target_weights=raw,
         held_quantities=dict(state.positions),
         last_prices=last_prices,
-        sleeve_equity=equity,
+        # Live (gate 2): never size from more than max_live_capital.
+        sleeve_equity=equity if rt.capital_cap is None else min(equity, rt.capital_cap),
         symbols=rt.symbols(),
         step_sizes={a: rt.instruments[a].step_size or Decimal(0) for a in sleeve.asset_ids},
         min_notionals={a: rt.instruments[a].min_notional or Decimal(0) for a in sleeve.asset_ids},

@@ -23,7 +23,7 @@ from backtest import inputs
 from config.settings import Settings
 from config.sleeve import SleeveConfig, load_sleeve
 from core.enums import Venue
-from execution.brokers import binance_testnet, ibkr
+from execution.brokers import binance_testnet, ibkr, kraken
 from execution.brokers.base import LiveBroker
 from execution.live_execution import ExecutionPolicy
 from live import gates
@@ -87,7 +87,9 @@ def build_runtime(
     if mode not in MODES:
         raise ValueError(f"unknown mode {mode!r}; expected one of {MODES}")
     if mode == "live":
-        gates.require_live_unlocked(settings=settings, sleeve=sleeve_name)
+        # Every spec Section 13 gate, or nothing. Nothing below this line
+        # can construct a live broker without passing it.
+        gates.require_live_unlocked(settings=settings, sleeve=sleeve_name, session=session)
 
     sleeve = load_sleeve(sleeve_name)
     strategy, label = build_strategy(sleeve)
@@ -116,6 +118,14 @@ def build_runtime(
                 _ccxt_symbols(sleeve, mode),
                 settings.binance_testnet_api_key.get_secret_value(),
                 settings.binance_testnet_api_secret.get_secret_value(),
+            )
+        elif mode == "live":
+            if not (settings.kraken_api_key and settings.kraken_api_secret):
+                raise RuntimeError("live crypto needs KESTREL_KRAKEN_API_KEY/_SECRET (trade-only)")
+            broker = kraken.make_broker(
+                _ccxt_symbols(sleeve, mode),
+                settings.kraken_api_key.get_secret_value(),
+                settings.kraken_api_secret.get_secret_value(),
             )
     elif venue == Venue.IBKR:
         needs_gateway = mode != "sim" or sleeve.sim_feed == "ibkr"
@@ -171,6 +181,10 @@ def build_runtime(
         sleep=sleep,
         elapsed=elapsed,
         quote_currency=next(iter(sleeve.assets)).listing_for(mode).quote_currency,
+        # Gate 2: live sizes from a ledger seeded with max_live_capital and
+        # never from more than it, whatever the venue balance says.
+        capital_cap=sleeve.live_gates.max_live_capital if mode == "live" else None,
+        daily_loss_limit_abs=sleeve.live_gates.daily_loss_limit_abs if mode == "live" else None,
     )
     for w in warnings:
         rt.alerter.send(

@@ -177,7 +177,12 @@ def run_backtest(
         bar_day = bar_close_ts.normalize()
         if current_day is None or bar_day != current_day:
             current_day = bar_day
-            equity_today_open = equity_now
+            # The day's loss is measured from the last mark BEFORE the day
+            # began (yesterday's close), not from this bar. Until Phase 7
+            # this was `equity_now`, so on daily bars -- one bar per day --
+            # the daily-loss switch compared today with itself and could
+            # never fire (and on 4h bars it ignored the first bar's move).
+            equity_today_open = equity_values[-1] if equity_values else float(initial_capital)
         equity_peak = max(equity_peak, equity_now)
         equity_values.append(equity_now)
         equity_index.append(bar_close_ts)

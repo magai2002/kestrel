@@ -57,3 +57,15 @@ execution:
   protection_bps: "20"
   timeout_seconds: 60
   max_requotes: 2
+
+# Phase 7 go-live gates (spec Section 13; live/gates.py; docs/runbook.md).
+# Everything here defaults to LOCKED. `kestrel live-check` shows the status.
+live_gates:
+  i_understand_this_uses_real_money: false
+  max_live_capital: null # e.g. "1000" -- the ledger is seeded with this, sizing never exceeds it
+  daily_loss_limit_abs: null # e.g. "30" (USD) -- required, in addition to the % limit
+  min_sim_weeks: 8
+  max_tracking_gap_pct: 2.0
+  min_dsr: 0.95
+  keys_trade_only_confirmed: false
+  emergency_stop_rehearsed: false

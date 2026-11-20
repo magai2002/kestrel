@@ -1,5 +1,51 @@
 # Progress
 
+## Phase 7: Live mode — the gates are built and enforced; live is NOT unlocked
+
+Scope: the spec's Section 13 checklist **in code**, plus the
+dedicated-VPS ADR and the tax export. No live keys were created, asked
+for or stored, and nothing can trade real money: every gate defaults to
+locked, and today all seven fail (`kestrel live-check`).
+
+### What's built
+
+- **`live/gates.py`**: all seven gates, each checked independently.
+  `build_runtime("live")` calls `require_live_unlocked` before
+  constructing anything, and the error lists every failing gate.
+  - Gate 3 reads 8+ weeks of `sim` equity snapshots and the latest
+    `shadow:sim` tracking gap.
+  - Gate 4 requires an **evaluated, uncontaminated** hold-out and a DSR
+    above threshold for every strategy in the sleeve. That's stricter
+    than the spec's "not contaminated", which a never-evaluated hold-out
+    passes trivially.
+  - Gate 7 needs a recorded `emergency_stop_rehearsal` event in
+    `sandbox` (`kestrel admin record-rehearsal`) as well as the config
+    flag.
+- **Live sizing cap and absolute loss limit** (gates 2 and 6): a live
+  ledger is seeded with `max_live_capital`, sizing never uses more, and
+  `daily_loss_limit_abs` trips the daily-loss switch in currency.
+- **Kraken live broker wiring** behind the gates. The IBKR live port
+  (4001) has used the same path since Phase 4.
+- **`kestrel report tax --year`**: per-fill CSV with reported fees and a
+  TOB estimate from each asset's configured rate.
+- **[ADR 0007](adr/0007-dedicated-vps-for-live.md)** (proposed):
+  recommends running `live` (and `sandbox` with the IB Gateway) on a
+  dedicated small VPS with no inbound internet traffic. It's a paid
+  service, so it's your call.
+- A **"Going live" runbook section** walks through each gate.
+
+### Found this phase (a real bug)
+
+- **The daily-loss kill switch could never fire on daily bars.** "Day
+  open" equity was set from the first bar of each UTC day; with one bar
+  per day, today was compared with itself. On 4h crypto it ignored the
+  move into the first bar of each day. Both the backtest engine and the
+  live runner now measure from the previous mark (yesterday's close).
+  The golden hash is unchanged (its frozen fixture has no −3% day), and
+  a new test trips the absolute limit on a gap.
+
+---
+
 ## Phase 6: Dashboard, public API, GitHub polish — built and serving on 127.0.0.1; public URL awaits DNS + your OK
 
 ### What's built

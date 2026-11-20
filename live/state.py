@@ -46,6 +46,7 @@ class SleeveState:
     equity_peak: float
     day: str | None = None  # UTC date of day_open_equity
     day_open_equity: float = 0.0
+    last_equity: float | None = None  # previous mark: the next UTC day's loss reference
     last_bar_close: str | None = None  # ISO; the last decision bar processed
     baseline: dict[str, Decimal] = field(default_factory=dict)  # venue symbol -> qty at start
     pending_orders: list[dict[str, Any]] = field(default_factory=list)  # sim: fill at next open
@@ -83,6 +84,7 @@ class SleeveState:
             equity_peak=float(raw["equity_peak"]),
             day=raw.get("day"),
             day_open_equity=float(raw.get("day_open_equity", 0.0)),
+            last_equity=None if raw.get("last_equity") is None else float(raw["last_equity"]),
             last_bar_close=raw.get("last_bar_close"),
             baseline={k: Decimal(v) for k, v in (raw.get("baseline") or {}).items()},
             pending_orders=list(raw.get("pending_orders") or []),

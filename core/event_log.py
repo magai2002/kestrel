@@ -35,6 +35,7 @@ class EventType(StrEnum):
     RECONCILIATION = "reconciliation"  # Phase 4: ledger vs broker
     ACK = "ack"  # Phase 4: the venue's view of an order attempt
     ALERT = "alert"
+    EMERGENCY_STOP_REHEARSAL = "emergency_stop_rehearsal"  # Phase 7 gate 7
 
 
 @dataclass(frozen=True)

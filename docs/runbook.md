@@ -170,3 +170,36 @@ errors, then an `error_burst` kill switch. Run data commands inside the
 stack instead (`$PROD run --rm engine-sim data fetch-crypto`), or
 `chown -R 10001:10001 market_data reports` afterwards (`deploy.sh` does
 this).
+
+## Going live (Phase 7): the gates
+
+`live` refuses to start unless every spec Section 13 gate passes. See
+where you stand at any time (read-only):
+
+```sh
+$PROD exec engine-sim kestrel live-check
+```
+
+| Gate | What you do |
+| --- | --- |
+| 1 | `KESTREL_LIVE_TRADING_ENABLED=true` in `.env` **and** `live_gates.i_understand_this_uses_real_money: true` in the sleeve YAML |
+| 2 | `live_gates.max_live_capital` in the sleeve YAML (the ledger is seeded with it; sizing never exceeds it) |
+| 3 | Automatic: ≥ 8 weeks of `sim` on the server, and the nightly shadow backtest's tracking gap within `max_tracking_gap_pct` |
+| 4 | `kestrel validate <strategy> --sleeve <sleeve> --holdout` **once** per strategy in the sleeve, when final. It must not be contaminated, and DSR ≥ `min_dsr` |
+| 5 | Create **trade-only** keys: Kraken: Query Funds + Create & Modify Orders + Cancel Orders, **no** Withdraw Funds, IP whitelist = the engine box. IBKR: a dedicated username without withdrawal permissions where IBKR allows it. Then set `keys_trade_only_confirmed: true` |
+| 6 | `live_gates.daily_loss_limit_abs` (currency) in the sleeve YAML. Percent limits are shared with paper, so never looser |
+| 7 | Do the emergency stop above against `sandbox`, then `kestrel admin record-rehearsal --sleeve <s> --by <you> --notes "..."` and set `emergency_stop_rehearsed: true` |
+
+Before any of this: read [ADR 0007](adr/0007-dedicated-vps-for-live.md)
+(run live on its own box).
+
+## Tax export
+
+```sh
+$PROD exec engine-sim kestrel report tax --year 2027 --mode live   # -> reports/tax-live-2027.csv
+```
+
+One row per fill, with the venue-reported fee and a TOB estimate from
+each asset's configured rate. Check the rates against your own
+situation; this is not tax advice. From Belgium, gains may be taxed at
+10% or, if the activity counts as speculative, 33%.

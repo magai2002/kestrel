@@ -39,6 +39,9 @@ uv run kestrel ibkr contracts                 # qualify UCITS twins against a ru
 uv run kestrel shadow --mode sim              # shadow backtest now (normally nightly, 00:20 UTC, inside `run`)
 uv run kestrel api --role public              # read-only API + dashboard on 127.0.0.1:8710
 make demo                                     # fresh-clone demo: committed sample, no DB, < 1 min
+uv run kestrel live-check                     # Phase 7 go-live checklist (read-only)
+uv run kestrel admin record-rehearsal --sleeve crypto --by <you>   # gate 7, after a sandbox emergency-stop drill
+uv run kestrel report tax --year 2027 --mode live                  # per-year fills + fees + TOB estimate CSV
 
 # Dashboard (web/): no Node on the host -- build in the pinned image
 docker run --rm -v "$PWD/web":/web -w /web node:22.11.0-alpine sh -c "npm ci && npm run build"
@@ -95,8 +98,17 @@ and formatting *before* executing keeps outputs matching the source.)
   `TransientBrokerError` means "unknown", never "failed". Venue client
   ids are UUIDv5 of our readable id (`execution/brokers/client_ids.py`);
   never change `KESTREL_NAMESPACE`.
-- **`live` mode is locked** (`live/gates.py`) until Phase 7's gates. The
-  Kraken/IBKR-live adapters must stay unconstructable outside that path.
+- **`live` mode needs every spec Section 13 gate** (`live/gates.py`,
+  `kestrel live-check`). `build_runtime("live", ...)` calls
+  `require_live_unlocked` before constructing anything; the Kraken and
+  IBKR-live brokers must stay unconstructable outside that path. All
+  `live_gates` config defaults are LOCKED; never flip them on a user's
+  behalf, and never ask for or store live keys unless the user unlocks
+  Phase 7 explicitly.
+- **Daily loss is measured from the previous mark** (yesterday's close),
+  in both `backtest/engine.py` and the live runner (`state.last_equity`).
+  Measuring from the day's first bar made the switch unable to fire on
+  daily bars (found in Phase 7).
 - **The buffered vector must fit the limits, not just the targets**
   (`portfolio/rebalance.py::fit_to_limits`): untraded positions drift.
   Trading assets absorb an excess first; held positions are force-trimmed
