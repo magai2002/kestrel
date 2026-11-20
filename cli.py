@@ -2,14 +2,14 @@
 
 ``Settings()`` is constructed exactly once, inside each command
 function — never at module import time (see ``config/__init__.py``).
-Phase 0 only wires up the ``data`` sub-commands; ``backtest``,
-``validate`` (the strategy-validation pipeline, not ``data validate``),
-``run``, ``report`` and ``admin`` arrive with the phases that need them.
+Sub-apps: ``data`` (fetch/validate/sync), ``backtest``, ``validate``
+(the strategy-validation pipeline, not ``data validate``), ``run``,
+``report`` and ``admin``.
 """
 
 from __future__ import annotations
 
-import importlib
+import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -21,18 +21,16 @@ import typer
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from backtest import inputs
 from backtest.engine import run_backtest
 from config.settings import Settings
-from config.sleeve import load_sleeve_config
+from config.sleeve import load_sleeve, load_sleeve_config
 from core.enums import Timeframe, Venue
-from core.instrument import Instrument
 from core.orm import InstrumentRecord
+from core.reproducibility import git_sha
 from data import store, validate
-from data.calendars import crypto_expected_bar_starts, nyse_session_dates
-from data.sources import alpaca_bars, binance_bulk, binance_exchange_info, ccxt_ohlcv
-from execution.costs import CostModel
-from risk.limits import RiskLimits
-from strategies.registry import get as get_strategy_entry
+from data.calendars import crypto_expected_bar_starts, session_schedule
+from data.sources import binance_bulk, binance_exchange_info, ccxt_ohlcv, yahoo_chart
 
 app = typer.Typer(help="kestrel: multi-market systematic trading bot")
 data_app = typer.Typer(help="Fetch, store and validate market data")
@@ -59,11 +57,13 @@ def fetch_crypto(
     end_date = date.fromisoformat(end) if end else datetime.now(UTC).date()
 
     with httpx.Client(timeout=30.0) as client:
-        for entry in sleeve.universe:
-            if entry.venue == Venue.BINANCE:
-                _fetch_binance_symbol(entry.symbol, start_date, end_date, settings.data_dir, client)
-            elif entry.venue == Venue.KRAKEN:
-                _fetch_kraken_symbol(entry.symbol, sleeve.decision_bar, settings.data_dir)
+        for asset in sleeve.assets:
+            if asset.research.venue == Venue.BINANCE:
+                _fetch_binance_symbol(
+                    asset.research.symbol, start_date, end_date, settings.data_dir, client
+                )
+            if asset.live.venue == Venue.KRAKEN:
+                _fetch_kraken_symbol(asset.live.symbol, sleeve.decision_bar, settings.data_dir)
 
 
 def _fetch_binance_symbol(
@@ -106,36 +106,38 @@ def fetch_equities(
     ),
     end: str | None = typer.Option(None, help="Backfill end, YYYY-MM-DD (UTC); defaults to today"),
 ) -> None:
-    """Backfill adjusted daily ETF bars from Alpaca. Requires
-    ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY (free paper-account keys;
-    see .env.example)."""
+    """Backfill adjusted daily bars from Yahoo: the US research ETFs
+    and the UCITS twins' warm-up history. No credentials needed."""
     settings = Settings()
-    if settings.alpaca_api_key_id is None or settings.alpaca_api_secret_key is None:
-        typer.echo(
-            "Alpaca credentials not set. Add KESTREL_ALPACA_API_KEY_ID and "
-            "KESTREL_ALPACA_API_SECRET_KEY to .env (see .env.example) — a free "
-            "paper-account key pair is enough, no live-trading access needed.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end) if end else datetime.now(UTC).date()
     sleeve = load_sleeve_config(EQUITIES_SLEEVE_PATH)
-    symbols = [e.symbol for e in sleeve.universe if e.venue == Venue.ALPACA]
-    client = alpaca_bars.make_client(
-        settings.alpaca_api_key_id.get_secret_value(),
-        settings.alpaca_api_secret_key.get_secret_value(),
-    )
-    typer.echo(f"Alpaca: backfilling {len(symbols)} symbols, {start_date} .. {end_date}")
-    df = alpaca_bars.fetch_daily_bars(symbols, start_date, end_date, client)
-    if df.empty:
-        typer.echo("  no data returned", err=True)
+    now = datetime.now(UTC)
+    targets: list[tuple[str, str]] = []  # (yahoo symbol, calendar)
+    for asset in sleeve.assets:
+        if asset.research.venue == Venue.YAHOO:
+            targets.append((asset.research.symbol, asset.research.calendar or "NYSE"))
+        if asset.live.backfill_venue == Venue.YAHOO and asset.live.backfill_symbol:
+            targets.append((asset.live.backfill_symbol, asset.live.calendar or "LSE"))
+
+    failures = 0
+    with httpx.Client(timeout=30.0) as client:
+        for symbol, calendar in targets:
+            try:
+                df = yahoo_chart.fetch_daily_bars(
+                    symbol, start_date, end_date, calendar, client, now
+                )
+            except (yahoo_chart.YahooShapeError, httpx.HTTPError) as exc:
+                typer.echo(f"  Yahoo {symbol}: FAILED -- {exc}", err=True)
+                failures += 1
+                continue
+            written = store.write_bars(df, settings.data_dir)
+            first = df["open_time"].min().date() if not df.empty else "-"
+            typer.echo(
+                f"  Yahoo {symbol} ({calendar}): {len(df)} bars from {first}, {len(written)} file(s)"
+            )
+    if failures:
         raise typer.Exit(code=1)
-    written = store.write_bars(df, settings.data_dir)
-    typer.echo(
-        f"  wrote {len(written)} partition file(s) ({len(df)} bars across {df['symbol'].nunique()} symbols)"
-    )
 
 
 @data_app.command("validate")
@@ -146,38 +148,51 @@ def validate_data() -> None:
     equities = load_sleeve_config(EQUITIES_SLEEVE_PATH)
 
     any_issues = False
-    for entry in crypto.universe:
+    crypto_listings = [a.research for a in crypto.assets] + [a.live for a in crypto.assets]
+    for listing in crypto_listings:
         for timeframe in (Timeframe.H1, Timeframe.H4, Timeframe.D1):
-            if entry.venue == Venue.KRAKEN and timeframe != crypto.decision_bar:
-                continue  # Kraken fetch only ever covers the decision bar.
+            if listing.venue != Venue.BINANCE and timeframe != crypto.decision_bar:
+                continue  # Only Binance's backfill covers every timeframe.
             df = store.read_bars(
                 settings.data_dir,
-                venue=entry.venue.value,
-                symbol=entry.symbol,
+                venue=listing.venue.value,
+                symbol=listing.symbol,
                 timeframe=timeframe.value,
             )
             if df.empty:
                 continue
             expected = _crypto_expected_grid(df, timeframe)
             report = validate.validate_series(
-                df, entry.venue.value, entry.symbol, timeframe, expected
+                df, listing.venue.value, listing.symbol, timeframe, expected
             )
             typer.echo(report.format())
             any_issues = any_issues or not report.is_clean
 
-    for entry in equities.universe:
+    equity_series: list[tuple[str, str, str]] = []  # (venue, symbol, calendar)
+    for asset in equities.assets:
+        equity_series.append(
+            (asset.research.venue.value, asset.research.symbol, asset.research.calendar or "NYSE")
+        )
+        if asset.live.backfill_venue and asset.live.backfill_symbol:
+            equity_series.append(
+                (
+                    asset.live.backfill_venue.value,
+                    asset.live.backfill_symbol,
+                    asset.live.calendar or "LSE",
+                )
+            )
+        equity_series.append(
+            (asset.live.venue.value, asset.live.symbol, asset.live.calendar or "LSE")
+        )
+    for venue, symbol, calendar in equity_series:
         df = store.read_bars(
-            settings.data_dir,
-            venue=entry.venue.value,
-            symbol=entry.symbol,
-            timeframe=equities.decision_bar.value,
+            settings.data_dir, venue=venue, symbol=symbol, timeframe=equities.decision_bar.value
         )
         if df.empty:
             continue
-        sessions = nyse_session_dates(df["open_time"].min(), df["open_time"].max())
-        report = validate.validate_equity_series(
-            df, entry.venue.value, entry.symbol, equities.decision_bar, sessions
-        )
+        schedule = session_schedule(calendar, df["open_time"].min(), df["open_time"].max())
+        sessions = pd.DatetimeIndex(schedule.index).tz_localize("UTC").normalize()
+        report = validate.validate_equity_series(df, venue, symbol, equities.decision_bar, sessions)
         typer.echo(report.format())
         any_issues = any_issues or not report.is_clean
 
@@ -197,7 +212,7 @@ def sync_instruments() -> None:
     values, not the nullable placeholders Phase 0 left)."""
     settings = Settings()
     crypto = load_sleeve_config(CRYPTO_SLEEVE_PATH)
-    binance_entries = [e for e in crypto.universe if e.venue == Venue.BINANCE]
+    binance_entries = [a.research for a in crypto.assets if a.research.venue == Venue.BINANCE]
     if not binance_entries:
         typer.echo("no Binance-venue instruments in the crypto sleeve config")
         return
@@ -239,137 +254,144 @@ def backtest_cmd(
     and print a results summary (Phase 2's "done when": prints a
     results summary and writes the event log)."""
     settings = Settings()
-    if sleeve == "crypto":
-        sleeve_path, primary_venue = CRYPTO_SLEEVE_PATH, Venue.BINANCE
-    elif sleeve == "equities":
-        sleeve_path, primary_venue = EQUITIES_SLEEVE_PATH, Venue.ALPACA
-    else:
-        typer.echo(f"unknown sleeve {sleeve!r} (expected crypto or equities)", err=True)
-        raise typer.Exit(code=1)
-    sleeve_config = load_sleeve_config(sleeve_path)
-
     try:
-        entry = get_strategy_entry(strategy_name)
-    except KeyError as exc:
+        sleeve_config = load_sleeve(sleeve)
+        params = inputs.strategy_params(strategy_name, sleeve_config)
+        price_set = inputs.load_prices(sleeve_config, settings.data_dir)
+    except (FileNotFoundError, KeyError, inputs.MissingDataError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
-
-    # Only the sleeve's primary (historical-backfill) venue participates
-    # in a backtest -- e.g. crypto's Kraken entries are a forward-looking
-    # live/sim cross-check window (Section 3.3), not backtest history.
-    universe = [e for e in sleeve_config.universe if e.venue == primary_venue]
-    if not universe:
-        typer.echo(f"no {primary_venue.value}-venue instruments in sleeve {sleeve!r}", err=True)
-        raise typer.Exit(code=1)
-
-    prices: dict[str, pd.DataFrame] = {}
-    for u in universe:
-        df = store.read_bars(
-            settings.data_dir,
-            venue=primary_venue.value,
-            symbol=u.symbol,
-            timeframe=sleeve_config.decision_bar.value,
-        )
-        if df.empty:
-            typer.echo(
-                f"no stored data for {primary_venue.value}:{u.symbol} at "
-                f"{sleeve_config.decision_bar.value} -- run `make data` first",
-                err=True,
-            )
-            raise typer.Exit(code=1)
-        prices[f"{primary_venue.value}:{u.symbol}"] = df
-
-    bars_per_day = Timeframe.D1.timedelta_seconds / sleeve_config.decision_bar.timedelta_seconds
-    if sleeve == "crypto":
-        periods_per_year = 365.0 * bars_per_day
-        cost_model_kwargs: dict[str, Decimal] = dict(
-            fee_pct=Decimal("0.008"), spread_bps=Decimal("2"), slippage_k=Decimal("0.1")
-        )
-        risk_limits = RiskLimits(
-            per_instrument_weight_cap=0.60, max_order_notional_pct=0.30, price_band_pct=0.02
-        )
-    else:
-        periods_per_year = 252.0 * bars_per_day
-        cost_model_kwargs = dict(
-            fee_pct=Decimal("0"),
-            spread_bps=Decimal("1"),
-            slippage_k=Decimal("0.1"),
-            tob_pct=Decimal("0.0012"),
-            tob_cap=Decimal("1600"),
-        )
-        risk_limits = RiskLimits(
-            per_instrument_weight_cap=0.30, max_order_notional_pct=0.30, price_band_pct=0.01
-        )
-    cost_models = {iid: CostModel(**cost_model_kwargs) for iid in prices}
+    strategy, warmup_bars = inputs.build_strategy(params, strategy_name)
 
     engine = create_engine(settings.postgres_dsn)
-    instruments: dict[str, Instrument] = {}
     with Session(engine) as session:
-        for u in universe:
-            instrument_id = f"{primary_venue.value}:{u.symbol}"
-            record = session.get(InstrumentRecord, (primary_venue.value, u.symbol))
-            if record is None:
-                typer.echo(
-                    f"  warning: no synced metadata for {instrument_id}; run "
-                    "`kestrel data sync-instruments`. Proceeding without tick/step/"
-                    "min-notional rounding for it.",
-                    err=True,
-                )
-                instruments[instrument_id] = Instrument(
-                    venue=primary_venue,
-                    symbol=u.symbol,
-                    asset_class=sleeve_config.asset_class,
-                    base_currency=u.base_currency,
-                    quote_currency=u.quote_currency,
-                )
-            else:
-                instruments[instrument_id] = Instrument(
-                    venue=primary_venue,
-                    symbol=u.symbol,
-                    asset_class=sleeve_config.asset_class,
-                    base_currency=u.base_currency,
-                    quote_currency=u.quote_currency,
-                    tick_size=record.tick_size,
-                    step_size=record.step_size,
-                    min_notional=record.min_notional,
-                )
-
-        extra_param_kwargs = {"bars_per_day": bars_per_day, "periods_per_year": periods_per_year}
-        valid_kwargs = {
-            k: v for k, v in extra_param_kwargs.items() if k in entry.params_cls.model_fields
-        }
-        strategy_params = entry.params_cls(**valid_kwargs)
-        strategy = entry.strategy_cls(params=strategy_params)
-
-        strategy_module = importlib.import_module(entry.strategy_cls.__module__)
-        lookback_fn = getattr(strategy_module, "required_lookback_bars", None)
-        warmup_bars = lookback_fn(strategy_params) if lookback_fn else 0
-
+        instruments, warnings = inputs.load_instruments(sleeve_config, "backtest", session)
+        for warning in warnings:
+            typer.echo(f"  warning: {warning}", err=True)
         run_id = str(uuid4())
         results = run_backtest(
             strategy=strategy,
             strategy_name=strategy_name,
             sleeve_name=sleeve,
-            prices=prices,
+            prices=price_set.bars,
             instruments=instruments,
             timeframe=sleeve_config.decision_bar,
             initial_capital=Decimal(str(sleeve_config.paper_capital)),
-            cost_models=cost_models,
-            risk_limits=risk_limits,
-            periods_per_year=periods_per_year,
+            cost_models=inputs.cost_models(sleeve_config),
+            risk_limits=sleeve_config.risk.to_risk_limits(),
+            periods_per_year=sleeve_config.periods_per_year,
             run_id=run_id,
-            bars_per_day=bars_per_day,
+            buffer_pct=sleeve_config.buffer_pct,
+            participation_cap=sleeve_config.participation_cap,
+            bars_per_day=sleeve_config.bars_per_day,
             warmup_bars=warmup_bars,
             db_session=session,
             config_for_hash={
                 "strategy": strategy_name,
                 "sleeve": sleeve,
-                "params": strategy_params.model_dump(mode="json"),
+                "params": params.model_dump(mode="json"),
             },
         )
 
     typer.echo(results.format_summary())
     typer.echo(f"\nEvent log written to Postgres (run_id={run_id}).")
+
+
+@app.command("validate")
+def validate_cmd(
+    strategy_name: str = typer.Argument(..., help="Strategy name, or 'all'"),
+    sleeve: str = typer.Option("all", "--sleeve", help="crypto, equities, or all"),
+    holdout: bool = typer.Option(
+        False,
+        "--holdout",
+        help="Also evaluate the locked hold-out. Do this ONCE per strategy/sleeve, when final: "
+        "every access is recorded and a second one marks the report contaminated.",
+    ),
+) -> None:
+    """Walk-forward validation with DSR, PBO, bootstrap, cost
+    sensitivity and per-year/regime tables. Writes
+    reports/<run_id>/report.{html,json}."""
+    from research import report_html, validation
+    from research.ledger import SqlLedger
+
+    settings = Settings()
+    vconf = validation.load_validation_config()
+    strategies = list(vconf.strategies) if strategy_name == "all" else [strategy_name]
+    sleeves = ["crypto", "equities"] if sleeve == "all" else [sleeve]
+    for name in strategies:
+        if name not in vconf.strategies:
+            typer.echo(f"no validation config for {name!r} in config/validation.yaml", err=True)
+            raise typer.Exit(code=1)
+
+    engine = create_engine(settings.postgres_dsn)
+    summary_path = settings.reports_dir / "summary.json"
+    summary: dict[str, object] = (
+        json.loads(summary_path.read_text()) if summary_path.exists() else {}
+    )
+    sha = git_sha()
+    for sleeve_name in sleeves:
+        sleeve_config = load_sleeve(sleeve_name)
+        try:
+            price_set = inputs.load_prices(sleeve_config, settings.data_dir)
+        except inputs.MissingDataError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        for name in strategies:
+            run_id = str(uuid4())
+            with Session(engine) as session:
+                ledger = SqlLedger(session)
+                if holdout:
+                    hs = price_set.close_panel.index[
+                        int(len(price_set.close_panel) * (1 - vconf.holdout_fraction))
+                    ]
+                    prior = ledger.holdout_access_count(name, sleeve_name, hs.to_pydatetime())
+                    if prior:
+                        typer.echo(
+                            f"\n{'!' * 72}\n!! HOLD-OUT ALREADY ACCESSED {prior}x for {name}/{sleeve_name}. "
+                            f"This report will be marked CONTAMINATED.\n{'!' * 72}",
+                            err=True,
+                        )
+                report = validation.run_validation(
+                    name, sleeve_config, price_set, vconf, ledger, run_id, sha, holdout
+                )
+            out_dir = settings.reports_dir / run_id
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "report.json").write_text(json.dumps(report, indent=1))
+            (out_dir / "report.html").write_text(report_html.render(report))
+            h = report["headline"]
+            verdict = "SURVIVES" if report["verdict"]["survives"] else "does not survive"
+            typer.echo(
+                f"{name:>24} / {sleeve_name:<8}  DSR {_fmt(h['dsr'])}  OOS Sharpe {_fmt(h['oos_sharpe'])}"
+                f"  (baseline {_fmt(h['baseline_oos_sharpe'])})  PBO {_fmt(h['pbo'])}  -> {verdict}"
+                f"   reports/{run_id}/report.html"
+            )
+            summary[f"{name}/{sleeve_name}"] = {
+                "run_id": run_id,
+                "headline": h,
+                "verdict": report["verdict"],
+                "holdout": {
+                    k: report["holdout"].get(k)
+                    for k in ("evaluated", "contaminated", "prior_accesses", "start", "end")
+                }
+                | {"sharpe": (report["holdout"].get("summary") or {}).get("sharpe")},
+                "oos": {
+                    k: report["oos"][k]
+                    for k in (
+                        "cagr",
+                        "sharpe",
+                        "max_drawdown",
+                        "turnover_annual",
+                        "cost_drag_annual",
+                    )
+                },
+                "generated_at": report["generated_at"],
+            }
+    settings.reports_dir.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(json.dumps(summary, indent=1, sort_keys=True))
+
+
+def _fmt(x: object) -> str:
+    return "  —  " if x is None else f"{float(x):5.2f}"  # type: ignore[arg-type]
 
 
 def _crypto_expected_grid(df: pd.DataFrame, timeframe: Timeframe) -> pd.DatetimeIndex:

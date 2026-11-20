@@ -118,7 +118,7 @@ def test_validate_equity_series_reports_missing_session_as_gap() -> None:
         [pd.Timestamp("2024-01-02", tz="UTC"), pd.Timestamp("2024-01-03", tz="UTC")]
     )
     report = validate.validate_equity_series(
-        df, "alpaca", "SPY", Timeframe.D1, sessions, now=datetime(2030, 1, 1, tzinfo=UTC)
+        df, "yahoo", "SPY", Timeframe.D1, sessions, now=datetime(2030, 1, 1, tzinfo=UTC)
     )
     assert not report.is_clean
     assert len(report.gaps) == 1

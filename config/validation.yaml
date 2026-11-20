@@ -1,0 +1,58 @@
+# Validation pipeline settings (SPEC.md Section 7). Pre-declared, small
+# grids ON PURPOSE: every grid point is a trial in the ledger and makes
+# the Deflated Sharpe hurdle higher. Widening a grid after seeing a
+# result is exactly the behaviour the trial ledger exists to punish —
+# if you change these, the DSR of every later report goes down.
+#
+# warmup_days: history a strategy needs before its signal means anything
+# (slowest EWMA span, momentum lookback...). Walk-forward windows start
+# after the longest warm-up in the grid, so no train window is judged on
+# bars where every parameter set was still forced flat.
+
+holdout_fraction: 0.25
+bootstrap_block_days: 20
+bootstrap_resamples: 2000
+pbo_blocks: 16
+regime_sma_days: 200
+regime_slope_days: 20
+cost_multipliers: [0, 1, 2, 3]
+sharp_peak_threshold: 0.3 # annualised Sharpe gap between the best grid point and its neighbours' median
+
+sleeves:
+  crypto:
+    train_days: 730 # 2 years
+    test_days: 182 # 6 months
+  equities:
+    train_days: 1095 # 3 years (spec's example for daily bars)
+    test_days: 182
+
+strategies:
+  trend_vol_target:
+    baseline: buy_and_hold
+    warmup_days: 300
+    grid:
+      speeds_days:
+        - [[8, 32], [16, 64], [32, 128]]
+        - [[16, 64], [32, 128], [64, 256]]
+        - [[32, 128], [64, 256]]
+      vol_span_days: [25, 35, 50]
+  xs_momentum:
+    baseline: equal_weight_rebalanced
+    warmup_days: 420
+    grid:
+      lookback_months: [3, 6, 12]
+      top_n: { crypto: [1, 2], equities: [2, 3, 4] }
+  mean_reversion:
+    baseline: buy_and_hold
+    warmup_days: 30
+    grid:
+      entry_rsi_threshold: [5, 10, 15]
+      exit_rsi_threshold: [50, 70]
+  buy_and_hold:
+    baseline: equal_weight_rebalanced
+    warmup_days: 0
+    grid: {}
+  equal_weight_rebalanced:
+    baseline: buy_and_hold
+    warmup_days: 0
+    grid: {}

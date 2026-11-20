@@ -1,49 +1,100 @@
-# Equities sleeve (SPEC.md Section 3.1): ten ETFs, daily bars, orders
-# for next open after the US close.
+# Equities sleeve (SPEC.md Section 3.1, as amended 2026-11-20 —
+# docs/adr/0004-ibkr-ucits-hybrid-data.md).
+#
+# RESEARCH on the ten US ETFs (deep, clean Yahoo history from 2016);
+# TRADE their Irish-domiciled UCITS twins on the LSE (USD lines) through
+# Interactive Brokers, because EU retail clients can't buy US-domiciled
+# ETFs (no PRIIPs KID). Distributing share classes were preferred where
+# one exists: Belgian TOB is 0.12% on distributing funds vs 1.32% on
+# accumulating ones registered in Belgium — an 11x difference per trade.
+#
+# EVERY cost number below is an assumption to confirm (see notes):
+# IBKR's commission page refuses automated fetches, and TOB treatment
+# per fund is your tax situation, not general advice.
 name: equities
 asset_class: equity
 decision_bar: 1d
 base_currency: USD
 paper_capital: 10000
+periods_per_year_days: 252
+buffer_pct: 0.10
+bar_close_delay_seconds: 900 # 15 min after the close, so the daily bar is final
+regime_benchmark: SPY
 
-universe:
-  - symbol: SPY
-    venue: alpaca
-    base_currency: SPY
-    quote_currency: USD
-  - symbol: QQQ
-    venue: alpaca
-    base_currency: QQQ
-    quote_currency: USD
-  - symbol: IWM
-    venue: alpaca
-    base_currency: IWM
-    quote_currency: USD
-  - symbol: EFA
-    venue: alpaca
-    base_currency: EFA
-    quote_currency: USD
-  - symbol: EEM
-    venue: alpaca
-    base_currency: EEM
-    quote_currency: USD
-  - symbol: TLT
-    venue: alpaca
-    base_currency: TLT
-    quote_currency: USD
-  - symbol: IEF
-    venue: alpaca
-    base_currency: IEF
-    quote_currency: USD
-  - symbol: GLD
-    venue: alpaca
-    base_currency: GLD
-    quote_currency: USD
-  - symbol: DBC
-    venue: alpaca
-    base_currency: DBC
-    quote_currency: USD
-  - symbol: VNQ
-    venue: alpaca
-    base_currency: VNQ
-    quote_currency: USD
+# IBKR Pro *tiered*, LSE, USD-denominated ETFs (third-party summary,
+# unverified): 0.05% of value, min USD 1.70, plus exchange (0.0045%,
+# min GBP 0.10) and clearing (GBP 0.06) fees — folded into fixed_fee.
+# Anchors are YAML-only; each asset gets its own copy.
+x-ibkr-lse-dist: &ibkr_dist
+  fee_pct: "0.0005"
+  min_fee: "1.70"
+  fixed_fee: "0.21"
+  slippage_k: "0.1"
+  tob_pct: "0.0012" # distributing fund: 0.12%, cap EUR 1,300 (unverified for your situation)
+  tob_cap: "1300"
+x-ibkr-lse-acc: &ibkr_acc
+  fee_pct: "0.0005"
+  min_fee: "1.70"
+  fixed_fee: "0.21"
+  slippage_k: "0.1"
+  tob_pct: "0.0132" # accumulating, ASSUMED Belgium-registered: 1.32%, cap EUR 4,000. Confirm!
+  tob_cap: "4000"
+
+assets:
+  - id: SPY
+    research: { venue: yahoo, symbol: SPY, base_currency: SPY, quote_currency: USD, calendar: NYSE }
+    live: { venue: ibkr, symbol: VUSD, exchange: LSEETF, base_currency: VUSD, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: VUSD.L }
+    costs: { <<: *ibkr_dist, spread_bps: "5", notes: "Vanguard S&P 500 UCITS (Dist)" }
+  - id: QQQ
+    research: { venue: yahoo, symbol: QQQ, base_currency: QQQ, quote_currency: USD, calendar: NYSE }
+    live: { venue: ibkr, symbol: EQQU, exchange: LSEETF, base_currency: EQQU, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: EQQU.L }
+    costs: { <<: *ibkr_dist, spread_bps: "8", notes: "Invesco EQQQ Nasdaq-100 UCITS (Dist)" }
+  - id: IWM
+    research: { venue: yahoo, symbol: IWM, base_currency: IWM, quote_currency: USD, calendar: NYSE }
+    live: { venue: ibkr, symbol: R2US, exchange: LSEETF, base_currency: R2US, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: R2US.L }
+    costs: { <<: *ibkr_acc, spread_bps: "15", notes: "SPDR Russell 2000 UCITS (Acc) — no Dist USD line found" }
+  - id: EFA
+    research: { venue: yahoo, symbol: EFA, base_currency: EFA, quote_currency: USD, calendar: NYSE }
+    live: { venue: ibkr, symbol: EXUS, exchange: LSEETF, base_currency: EXUS, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: EXUS.L }
+    costs: { <<: *ibkr_acc, spread_bps: "15", notes: "Xtrackers MSCI World ex USA (Acc) — includes Canada, EAFE doesn't; listed 2024" }
+  - id: EEM
+    research: { venue: yahoo, symbol: EEM, base_currency: EEM, quote_currency: USD, calendar: NYSE }
+    live: { venue: ibkr, symbol: IDEM, exchange: LSEETF, base_currency: IDEM, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: IDEM.L }
+    costs: { <<: *ibkr_dist, spread_bps: "10", notes: "iShares MSCI EM UCITS (Dist) — same index as EEM" }
+  - id: TLT
+    research: { venue: yahoo, symbol: TLT, base_currency: TLT, quote_currency: USD, calendar: NYSE }
+    live: { venue: ibkr, symbol: IDTL, exchange: LSEETF, base_currency: IDTL, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: IDTL.L }
+    costs: { <<: *ibkr_dist, spread_bps: "8", notes: "iShares $ Treasury 20+yr UCITS (Dist)" }
+  - id: IEF
+    research: { venue: yahoo, symbol: IEF, base_currency: IEF, quote_currency: USD, calendar: NYSE }
+    live: { venue: ibkr, symbol: IDTM, exchange: LSEETF, base_currency: IDTM, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: IDTM.L }
+    costs: { <<: *ibkr_dist, spread_bps: "8", notes: "iShares $ Treasury 7-10yr UCITS (Dist)" }
+  - id: GLD
+    research: { venue: yahoo, symbol: GLD, base_currency: GLD, quote_currency: USD, calendar: NYSE }
+    live: { venue: ibkr, symbol: IGLN, exchange: LSEETF, base_currency: IGLN, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: IGLN.L }
+    costs: { <<: *ibkr_dist, spread_bps: "8", notes: "iShares Physical Gold ETC — an ETC (a note), not a fund; TOB treatment UNVERIFIED, 0.12% assumed" }
+  - id: DBC
+    research: { venue: yahoo, symbol: DBC, base_currency: DBC, quote_currency: USD, calendar: NYSE }
+    live: { venue: ibkr, symbol: CMOD, exchange: LSEETF, base_currency: CMOD, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: CMOD.L }
+    costs: { <<: *ibkr_acc, spread_bps: "20", notes: "Invesco Bloomberg Commodity UCITS (Acc) — different index from DBC's" }
+  - id: VNQ
+    research: { venue: yahoo, symbol: VNQ, base_currency: VNQ, quote_currency: USD, calendar: NYSE }
+    live: { venue: ibkr, symbol: IDUP, exchange: LSEETF, base_currency: IDUP, quote_currency: USD, calendar: LSE, backfill_venue: yahoo, backfill_symbol: IDUP.L }
+    costs: { <<: *ibkr_dist, spread_bps: "15", notes: "iShares US Property Yield UCITS (Dist)" }
+
+risk:
+  per_instrument_weight_cap: 0.30
+  group_caps:
+    # The five equity-index ETFs move together (spec Section 6.3 example).
+    - { name: equity_index, assets: [SPY, QQQ, IWM, EFA, EEM], cap: 0.60 }
+  max_order_notional_pct: 0.30
+  price_band_pct: 0.01
+  daily_loss_limit_pct: 0.03
+  drawdown_limit_pct: 0.20
+  stale_data_bars: 2.0
+
+strategies:
+  - name: trend_vol_target
+    weight: 0.7
+  - name: xs_momentum
+    weight: 0.3

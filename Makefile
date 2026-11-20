@@ -1,4 +1,4 @@
-.PHONY: setup lint fmt typecheck test up down migrate data data-crypto data-equities data-validate sync-instruments backtest ci
+.PHONY: setup lint fmt typecheck test up down migrate data data-crypto data-equities data-validate sync-instruments backtest validate notebook ci
 
 UV := uv
 
@@ -49,5 +49,19 @@ sync-instruments:
 ## Phase 2's "done when": prints a results summary and writes the event log.
 backtest:
 	$(UV) run kestrel backtest trend_vol_target --sleeve crypto
+
+## Phase 3's "done when": full walk-forward reports for every strategy on
+## both sleeves (hold-out NOT evaluated; see docs/validation-methodology.md).
+validate:
+	$(UV) run kestrel validate all --sleeve all
+
+## Regenerate the Phase 1 notebook: build cells -> ruff-format them (CI's
+## lint checks .ipynb too) -> execute in place, so committed source and
+## outputs always match. Never hand-edit the .ipynb.
+notebook:
+	$(UV) sync --group notebooks
+	$(UV) run python notebooks/build_01_first_look.py
+	$(UV) run ruff format notebooks/01_first_look.ipynb
+	$(UV) run jupyter execute --inplace notebooks/01_first_look.ipynb
 
 ci: lint typecheck test

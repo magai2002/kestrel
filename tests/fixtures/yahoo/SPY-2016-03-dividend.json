@@ -1,0 +1,159 @@
+{
+    "chart": {
+        "result": [
+            {
+                "meta": {
+                    "currency": "USD",
+                    "symbol": "SPY",
+                    "exchangeName": "PCX",
+                    "fullExchangeName": "NYSEArca",
+                    "instrumentType": "ETF",
+                    "firstTradeDate": 728317800,
+                    "regularMarketTime": 1795122000,
+                    "hasPrePostMarketData": true,
+                    "gmtoffset": -18000,
+                    "timezone": "EST",
+                    "exchangeTimezoneName": "America/New_York",
+                    "regularMarketPrice": 715.87,
+                    "regularMarketChangePercent": -1.962,
+                    "fulldayPrice": 713.92,
+                    "fulldayChange": -1.91,
+                    "fulldayChangePercent": -0.267,
+                    "fiftyTwoWeekHigh": 781.62,
+                    "fiftyTwoWeekLow": 629.28,
+                    "regularMarketDayHigh": 739.9,
+                    "regularMarketDayLow": 715.65,
+                    "regularMarketVolume": 76112413,
+                    "longName": "State Street SPDR S&P 500 ETF Trust",
+                    "shortName": "State Street SPDR S&P 500 ETF T",
+                    "chartPreviousClose": 202.5,
+                    "priceHint": 2,
+                    "currentTradingPeriod": {
+                        "pre": {
+                            "timezone": "EST",
+                            "start": 1795165200,
+                            "end": 1795185000,
+                            "gmtoffset": -18000
+                        },
+                        "regular": {
+                            "timezone": "EST",
+                            "start": 1795185000,
+                            "end": 1795208400,
+                            "gmtoffset": -18000
+                        },
+                        "post": {
+                            "timezone": "EST",
+                            "start": 1795208400,
+                            "end": 1795222800,
+                            "gmtoffset": -18000
+                        }
+                    },
+                    "dataGranularity": "1d",
+                    "range": "",
+                    "validRanges": [
+                        "1d",
+                        "5d",
+                        "1mo",
+                        "3mo",
+                        "6mo",
+                        "1y",
+                        "2y",
+                        "5y",
+                        "10y",
+                        "ytd",
+                        "max"
+                    ]
+                },
+                "timestamp": [
+                    1458048600,
+                    1458135000,
+                    1458221400,
+                    1458307800,
+                    1458567000,
+                    1458653400,
+                    1458739800,
+                    1458826200
+                ],
+                "events": {
+                    "dividends": {
+                        "1458307800": {
+                            "amount": 1.05,
+                            "date": 1458307800
+                        }
+                    }
+                },
+                "indicators": {
+                    "quote": [
+                        {
+                            "low": [
+                                201.0500030517578,
+                                201.5500030517578,
+                                202.77000427246094,
+                                203.8000030517578,
+                                203.8000030517578,
+                                203.57000732421875,
+                                203.00999450683594,
+                                201.74000549316406
+                            ],
+                            "volume": [
+                                93169100,
+                                129303200,
+                                134278500,
+                                138372400,
+                                72926700,
+                                97471900,
+                                81052500,
+                                84360900
+                            ],
+                            "high": [
+                                202.52999877929688,
+                                203.82000732421875,
+                                205.22999572753906,
+                                204.77999877929688,
+                                204.94000244140625,
+                                205.22999572753906,
+                                204.3300018310547,
+                                203.16000366210938
+                            ],
+                            "close": [
+                                202.1699981689453,
+                                203.33999633789062,
+                                204.6300048828125,
+                                204.3800048828125,
+                                204.6699981689453,
+                                204.55999755859375,
+                                203.2100067138672,
+                                203.1199951171875
+                            ],
+                            "open": [
+                                201.36000061035156,
+                                201.60000610351562,
+                                203.24000549316406,
+                                204.1699981689453,
+                                204.07000732421875,
+                                203.75999450683594,
+                                204.11000061035156,
+                                202.0
+                            ]
+                        }
+                    ],
+                    "adjclose": [
+                        {
+                            "adjclose": [
+                                170.01885986328125,
+                                171.00283813476562,
+                                172.0877227783203,
+                                172.76388549804688,
+                                173.00901794433594,
+                                172.91607666015625,
+                                171.77487182617188,
+                                171.69879150390625
+                            ]
+                        }
+                    ]
+                }
+            }
+        ],
+        "error": null
+    }
+}

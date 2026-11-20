@@ -28,9 +28,10 @@ def test_settings_has_sane_defaults_without_env_file(
     from config.settings import Settings
 
     settings = Settings()
-    assert settings.data_dir == Path("data")
-    assert settings.alpaca_api_key_id is None
-    assert settings.alpaca_api_secret_key is None
+    assert settings.data_dir == Path("market_data")
+    assert settings.binance_testnet_api_key is None
+    assert settings.kraken_api_key is None
+    assert settings.live_trading_enabled is False
 
 
 def test_settings_reads_env_vars_set_after_import(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,12 +40,13 @@ def test_settings_reads_env_vars_set_after_import(monkeypatch: pytest.MonkeyPatc
     sys.modules.pop("config.settings", None)
     import config.settings
 
-    monkeypatch.setenv("KESTREL_ALPACA_API_KEY_ID", "test-key-id")
-    monkeypatch.setenv("KESTREL_ALPACA_API_SECRET_KEY", "test-secret")
+    monkeypatch.setenv("KESTREL_BINANCE_TESTNET_API_KEY", "test-key-id")
+    monkeypatch.setenv("KESTREL_LIVE_TRADING_ENABLED", "true")
 
     settings = config.settings.Settings(_env_file=None)
-    assert settings.alpaca_api_key_id is not None
-    assert settings.alpaca_api_key_id.get_secret_value() == "test-key-id"
+    assert settings.binance_testnet_api_key is not None
+    assert settings.binance_testnet_api_key.get_secret_value() == "test-key-id"
+    assert settings.live_trading_enabled is True
 
 
 def test_settings_module_has_no_module_level_settings_instance() -> None:

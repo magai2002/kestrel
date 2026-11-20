@@ -46,3 +46,33 @@ def test_belgian_tob_respects_cap() -> None:
 
 def test_belgian_tob_under_cap_is_unaffected() -> None:
     assert belgian_tob(Decimal("10000"), Decimal("0.0035"), Decimal("1600")) == Decimal("35.0")
+
+
+def test_commission_minimum_dominates_small_orders() -> None:
+    """IBKR-style: 0.05% of $500 is $0.25, but the per-order minimum is
+    $1.70 — at retail size the minimum is the real cost."""
+    from decimal import Decimal
+
+    from execution.costs import commission
+
+    assert commission(Decimal("500"), Decimal("0.0005"), Decimal("1.70")) == Decimal("1.70")
+    assert commission(Decimal("10000"), Decimal("0.0005"), Decimal("1.70")) == Decimal("5.0000")
+
+
+def test_commission_adds_fixed_fee() -> None:
+    from decimal import Decimal
+
+    from execution.costs import commission
+
+    assert commission(Decimal("1000"), Decimal("0.0005"), Decimal("0"), Decimal("0.21")) == Decimal(
+        "0.7100"
+    )
+
+
+def test_order_cost_is_commission_plus_tob() -> None:
+    from decimal import Decimal
+
+    from execution.costs import CostModel, order_cost
+
+    cm = CostModel(fee_pct=Decimal("0.0005"), min_fee=Decimal("1.70"), tob_pct=Decimal("0.0012"))
+    assert order_cost(Decimal("1000"), cm) == Decimal("1.70") + Decimal("1.2000")

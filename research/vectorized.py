@@ -43,7 +43,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
+
+from execution.costs import CostModel
 
 
 def apply_buffer(weights: pd.DataFrame, buffer_pct: float) -> pd.DataFrame:
@@ -52,23 +55,27 @@ def apply_buffer(weights: pd.DataFrame, buffer_pct: float) -> pd.DataFrame:
 
     Sequential by nature — bar *t*'s held weight depends on whether bar
     *t-1* traded, which depends on bar *t-2*'s held weight, and so on —
-    so this loops over rows rather than being a single vector op. Still
-    fast enough for research-scale data (thousands of bars, not ticks).
+    so this loops over rows rather than being a single vector op. The
+    loop runs on a raw numpy array: the original pandas-per-row version
+    (``Series.where`` + ``.iloc`` assignment each bar) made a Phase 3
+    walk-forward over 17k crypto bars take minutes, all of it pandas
+    indexing overhead. Same semantics, including NaN (a NaN difference
+    never counts as "beyond the buffer").
     """
     if weights.empty:
         return weights.copy()
     if buffer_pct <= 0:
         return weights.copy()
 
-    buffered = weights.copy()
-    held = weights.iloc[0].copy()
-    buffered.iloc[0] = held
-    for i in range(1, len(weights)):
-        target = weights.iloc[i]
-        trade_mask = (target - held).abs() > buffer_pct
-        held = held.where(~trade_mask, target)
-        buffered.iloc[i] = held
-    return buffered
+    values = weights.to_numpy(dtype=float, copy=True)
+    held = values[0].copy()
+    with np.errstate(invalid="ignore"):
+        for i in range(1, len(values)):
+            target = values[i]
+            trade = np.abs(target - held) > buffer_pct
+            held = np.where(trade, target, held)
+            values[i] = held
+    return pd.DataFrame(values, index=weights.index, columns=weights.columns)
 
 
 @dataclass(frozen=True)
@@ -118,4 +125,86 @@ def run(
         applied_weights=applied_weights,
         raw_weights=target_weights,
         turnover_per_bar=turnover_per_bar,
+    )
+
+
+def trailing_vol(prices: pd.DataFrame, span_bars: int) -> pd.DataFrame:
+    """Per-bar EWM vol of returns, shifted one bar (same causality rule
+    as ``backtest.engine._trailing_volatility``)."""
+    return prices.pct_change().ewm(span=span_bars, min_periods=span_bars).std().shift(1).fillna(0.0)
+
+
+def run_with_costs(
+    prices: pd.DataFrame,
+    target_weights: pd.DataFrame,
+    cost_models: dict[str, CostModel],
+    initial_capital: float,
+    buffer_pct: float = 0.0,
+    vol: pd.DataFrame | None = None,
+    cost_multiplier: float = 1.0,
+) -> VectorizedResult:
+    """Like ``run``, but each trade is charged the same cost model the
+    event engine uses (``execution/costs.py``): commission **with its
+    per-order minimum and fixed fee**, TOB, half-spread and
+    volatility-scaled slippage, all scaled by ``cost_multiplier`` (the
+    0x/1x/2x/3x cost-sensitivity sweep).
+
+    The per-order minimum is why this can't be one vector op: whether a
+    $1.70 minimum dominates depends on the trade's *dollar* size, which
+    depends on equity, which depends on every earlier bar's costs. So
+    it's a loop over bars (numpy inside) — still fast enough for a
+    grid search over thousands of bars.
+    """
+    columns = list(prices.columns)
+    buffered = apply_buffer(target_weights[columns], buffer_pct)
+    applied = buffered.shift(1).fillna(0.0)
+    rets = prices.pct_change().fillna(0.0).to_numpy()
+    w = applied.to_numpy()
+    vol_arr = (
+        vol[columns] if vol is not None else pd.DataFrame(0.0, prices.index, columns)
+    ).to_numpy()
+
+    def arr(attr: str) -> np.ndarray:
+        return np.array([float(getattr(cost_models[c], attr)) for c in columns]) * cost_multiplier
+
+    fee, min_fee, fixed = arr("fee_pct"), arr("min_fee"), arr("fixed_fee")
+    tob = arr("tob_pct")
+    caps = [cost_models[c].tob_cap for c in columns]
+    tob_cap = np.array([np.inf if cap is None else float(cap) * cost_multiplier for cap in caps])
+    half_spread = arr("spread_bps") / 10_000.0 / 2.0
+    slip_k = arr("slippage_k")
+
+    n = len(prices)
+    gross = (w * rets).sum(axis=1)
+    net = np.zeros(n)
+    turnover = np.zeros(n)
+    equity = initial_capital
+    prev_w = np.zeros(len(columns))
+    for t in range(n):
+        dw = np.abs(w[t] - prev_w)
+        turnover[t] = dw.sum()
+        cost = 0.0
+        if turnover[t] > 0:
+            notional = dw * equity
+            traded = notional > 0
+            commission = np.where(traded, np.maximum(notional * fee, min_fee) + fixed, 0.0)
+            tob_cost = np.minimum(notional * tob, tob_cap)
+            impact = notional * (half_spread + slip_k * vol_arr[t])
+            cost = float((commission + tob_cost + impact).sum()) / equity
+        net[t] = gross[t] - cost
+        equity *= 1.0 + net[t]
+        prev_w = w[t]
+        if equity <= 0:
+            net[t + 1 :] = 0.0
+            break
+
+    index = prices.index
+    net_s = pd.Series(net, index=index)
+    return VectorizedResult(
+        equity_curve=(1.0 + net_s).cumprod(),
+        net_returns=net_s,
+        gross_returns=pd.Series(gross, index=index),
+        applied_weights=applied,
+        raw_weights=target_weights,
+        turnover_per_bar=pd.Series(turnover, index=index),
     )

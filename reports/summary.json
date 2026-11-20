@@ -1,0 +1,442 @@
+{
+ "buy_and_hold/crypto": {
+  "generated_at": "2026-11-20T11:31:47.017535+00:00",
+  "headline": {
+   "baseline": "equal_weight_rebalanced",
+   "baseline_oos_sharpe": 0.8583535966391747,
+   "dsr": 0.9599143148158775,
+   "n_trials": 1,
+   "oos_cagr": 0.43284835213585127,
+   "oos_max_drawdown": -0.7193372673395224,
+   "oos_sharpe": 0.8900208837180184,
+   "pbo": null,
+   "psr_vs_zero": 0.9599143148158775,
+   "sharp_peak": false,
+   "sharpe_ci": [
+    -0.17351137516101914,
+    1.6959922366754105
+   ]
+  },
+  "holdout": {
+   "contaminated": false,
+   "end": "2026-11-01T00:00:00+00:00",
+   "evaluated": false,
+   "prior_accesses": 0,
+   "sharpe": null,
+   "start": "2024-11-17T04:00:00+00:00"
+  },
+  "oos": {
+   "cagr": 0.43284835213585127,
+   "cost_drag_annual": 0.0024919831655152436,
+   "max_drawdown": -0.7193372673395224,
+   "sharpe": 0.8900208837180184,
+   "turnover_annual": 0.18297603332453408
+  },
+  "run_id": "a0289b07-7b48-4050-a39a-399555e27e9d",
+  "verdict": {
+   "checks": {
+    "beats_baseline_oos": true,
+    "dsr_above_0.95": true,
+    "no_sharp_peak": true,
+    "pbo_below_0.5": true
+   },
+   "survives": true
+  }
+ },
+ "buy_and_hold/equities": {
+  "generated_at": "2026-11-20T11:32:07.562063+00:00",
+  "headline": {
+   "baseline": "equal_weight_rebalanced",
+   "baseline_oos_sharpe": 0.714280772201271,
+   "dsr": 0.9484430769820495,
+   "n_trials": 1,
+   "oos_cagr": 0.09670746274824005,
+   "oos_max_drawdown": -0.2308379816684235,
+   "oos_sharpe": 0.7365372765550956,
+   "pbo": null,
+   "psr_vs_zero": 0.9484430769820495,
+   "sharp_peak": false,
+   "sharpe_ci": [
+    -0.16640638859930762,
+    1.6516265255697382
+   ]
+  },
+  "holdout": {
+   "contaminated": false,
+   "end": "2026-11-19T21:00:00+00:00",
+   "evaluated": false,
+   "prior_accesses": 0,
+   "sharpe": null,
+   "start": "2024-02-29T21:00:00+00:00"
+  },
+  "oos": {
+   "cagr": 0.09670746274824005,
+   "cost_drag_annual": 8.032376371613914e-05,
+   "max_drawdown": -0.2308379816684235,
+   "sharpe": 0.7365372765550956,
+   "turnover_annual": 0.019435055021218103
+  },
+  "run_id": "aa6c69af-95c4-4572-a75a-e5198068a7b0",
+  "verdict": {
+   "checks": {
+    "beats_baseline_oos": true,
+    "dsr_above_0.95": false,
+    "no_sharp_peak": true,
+    "pbo_below_0.5": true
+   },
+   "survives": false
+  }
+ },
+ "equal_weight_rebalanced/crypto": {
+  "generated_at": "2026-11-20T11:31:48.720231+00:00",
+  "headline": {
+   "baseline": "buy_and_hold",
+   "baseline_oos_sharpe": 0.8233429017688749,
+   "dsr": 0.9545347135036624,
+   "n_trials": 1,
+   "oos_cagr": 0.42478372268154785,
+   "oos_max_drawdown": -0.7741537128717569,
+   "oos_sharpe": 0.8600823878796492,
+   "pbo": null,
+   "psr_vs_zero": 0.9545347135036624,
+   "sharp_peak": false,
+   "sharpe_ci": [
+    -0.2174724365325318,
+    1.681011414853974
+   ]
+  },
+  "holdout": {
+   "contaminated": false,
+   "end": "2026-11-01T00:00:00+00:00",
+   "evaluated": false,
+   "prior_accesses": 0,
+   "sharpe": null,
+   "start": "2024-11-17T04:00:00+00:00"
+  },
+  "oos": {
+   "cagr": 0.42478372268154785,
+   "cost_drag_annual": 0.0,
+   "max_drawdown": -0.7741537128717569,
+   "sharpe": 0.8600823878796492,
+   "turnover_annual": 0.0
+  },
+  "run_id": "b2db7ce7-3a5f-4c7a-9090-3c37fdcbd1ad",
+  "verdict": {
+   "checks": {
+    "beats_baseline_oos": true,
+    "dsr_above_0.95": true,
+    "no_sharp_peak": true,
+    "pbo_below_0.5": true
+   },
+   "survives": true
+  }
+ },
+ "equal_weight_rebalanced/equities": {
+  "generated_at": "2026-11-20T11:32:07.945820+00:00",
+  "headline": {
+   "baseline": "buy_and_hold",
+   "baseline_oos_sharpe": 0.7075969032788294,
+   "dsr": 0.9433990358152966,
+   "n_trials": 1,
+   "oos_cagr": 0.09308212846553476,
+   "oos_max_drawdown": -0.23083798166842318,
+   "oos_sharpe": 0.7155086434837822,
+   "pbo": null,
+   "psr_vs_zero": 0.9433990358152966,
+   "sharp_peak": false,
+   "sharpe_ci": [
+    -0.18593947978583883,
+    1.6301665337482358
+   ]
+  },
+  "holdout": {
+   "contaminated": false,
+   "end": "2026-11-19T21:00:00+00:00",
+   "evaluated": false,
+   "prior_accesses": 0,
+   "sharpe": null,
+   "start": "2024-02-29T21:00:00+00:00"
+  },
+  "oos": {
+   "cagr": 0.09308212846553476,
+   "cost_drag_annual": 0.0,
+   "max_drawdown": -0.23083798166842318,
+   "sharpe": 0.7155086434837822,
+   "turnover_annual": 0.0
+  },
+  "run_id": "3bd4ba10-92e5-4a44-bc0f-a81a1658d34b",
+  "verdict": {
+   "checks": {
+    "beats_baseline_oos": true,
+    "dsr_above_0.95": false,
+    "no_sharp_peak": true,
+    "pbo_below_0.5": true
+   },
+   "survives": false
+  }
+ },
+ "mean_reversion/crypto": {
+  "generated_at": "2026-11-20T11:31:44.226896+00:00",
+  "headline": {
+   "baseline": "buy_and_hold",
+   "baseline_oos_sharpe": 0.7348155423545415,
+   "dsr": 0.0,
+   "n_trials": 6,
+   "oos_cagr": -0.4638605122401316,
+   "oos_max_drawdown": -0.9080490841916327,
+   "oos_sharpe": -3.2475032375903568,
+   "pbo": 0.0,
+   "psr_vs_zero": 5.238037781296612e-11,
+   "sharp_peak": true,
+   "sharpe_ci": [
+    -3.9892314945435157,
+    -2.6334898717526913
+   ]
+  },
+  "holdout": {
+   "contaminated": false,
+   "end": "2026-11-01T00:00:00+00:00",
+   "evaluated": false,
+   "prior_accesses": 0,
+   "sharpe": null,
+   "start": "2024-11-17T04:00:00+00:00"
+  },
+  "oos": {
+   "cagr": -0.4638605122401316,
+   "cost_drag_annual": 0.5436452814180329,
+   "max_drawdown": -0.9080490841916327,
+   "sharpe": -3.2475032375903568,
+   "turnover_annual": 74.60700108264164
+  },
+  "run_id": "b38370d0-f463-4ace-af59-3529f3a06c5c",
+  "verdict": {
+   "checks": {
+    "beats_baseline_oos": false,
+    "dsr_above_0.95": false,
+    "no_sharp_peak": false,
+    "pbo_below_0.5": true
+   },
+   "survives": false
+  }
+ },
+ "mean_reversion/equities": {
+  "generated_at": "2026-11-20T11:32:07.144494+00:00",
+  "headline": {
+   "baseline": "buy_and_hold",
+   "baseline_oos_sharpe": 0.753309255853352,
+   "dsr": 0.2159377442769445,
+   "n_trials": 6,
+   "oos_cagr": -0.004545877811176546,
+   "oos_max_drawdown": -0.03385521586017526,
+   "oos_sharpe": -0.18692005097671277,
+   "pbo": 0.6973581973581974,
+   "psr_vs_zero": 0.3371590958481572,
+   "sharp_peak": false,
+   "sharpe_ci": [
+    -0.7062844604375782,
+    0.35203311109750884
+   ]
+  },
+  "holdout": {
+   "contaminated": false,
+   "end": "2026-11-19T21:00:00+00:00",
+   "evaluated": false,
+   "prior_accesses": 0,
+   "sharpe": null,
+   "start": "2024-02-29T21:00:00+00:00"
+  },
+  "oos": {
+   "cagr": -0.004545877811176546,
+   "cost_drag_annual": 0.018719229311477292,
+   "max_drawdown": -0.03385521586017526,
+   "sharpe": -0.18692005097671277,
+   "turnover_annual": 5.911848341232227
+  },
+  "run_id": "8f85efdf-a106-4d58-b04b-7169f602d70b",
+  "verdict": {
+   "checks": {
+    "beats_baseline_oos": false,
+    "dsr_above_0.95": false,
+    "no_sharp_peak": true,
+    "pbo_below_0.5": false
+   },
+   "survives": false
+  }
+ },
+ "trend_vol_target/crypto": {
+  "generated_at": "2026-11-20T11:31:30.714081+00:00",
+  "headline": {
+   "baseline": "buy_and_hold",
+   "baseline_oos_sharpe": 0.3469009838434114,
+   "dsr": 0.7007965668021434,
+   "n_trials": 9,
+   "oos_cagr": 0.04805257372447791,
+   "oos_max_drawdown": -0.2414013554077924,
+   "oos_sharpe": 0.4428294294604137,
+   "pbo": 0.9181041181041181,
+   "psr_vs_zero": 0.7798528202521169,
+   "sharp_peak": false,
+   "sharpe_ci": [
+    -0.8027441904816797,
+    1.5646691219665902
+   ]
+  },
+  "holdout": {
+   "contaminated": false,
+   "end": "2026-11-01T00:00:00+00:00",
+   "evaluated": false,
+   "prior_accesses": 0,
+   "sharpe": null,
+   "start": "2024-11-17T04:00:00+00:00"
+  },
+  "oos": {
+   "cagr": 0.04805257372447791,
+   "cost_drag_annual": 0.010374306906690611,
+   "max_drawdown": -0.2414013554077924,
+   "sharpe": 0.4428294294604137,
+   "turnover_annual": 1.0699577343286752
+  },
+  "run_id": "27b5d651-4033-4041-8f93-4dc02d0e41a8",
+  "verdict": {
+   "checks": {
+    "beats_baseline_oos": true,
+    "dsr_above_0.95": false,
+    "no_sharp_peak": true,
+    "pbo_below_0.5": false
+   },
+   "survives": false
+  }
+ },
+ "trend_vol_target/equities": {
+  "generated_at": "2026-11-20T11:31:55.376663+00:00",
+  "headline": {
+   "baseline": "buy_and_hold",
+   "baseline_oos_sharpe": 0.7515262236584355,
+   "dsr": 0.8690790514729404,
+   "n_trials": 9,
+   "oos_cagr": 0.07213146880401111,
+   "oos_max_drawdown": -0.1234174845510424,
+   "oos_sharpe": 0.8458143660795483,
+   "pbo": 0.4425019425019425,
+   "psr_vs_zero": 0.9518224826204916,
+   "sharp_peak": false,
+   "sharpe_ci": [
+    -0.08244917512581734,
+    1.7674766684624854
+   ]
+  },
+  "holdout": {
+   "contaminated": false,
+   "end": "2026-11-19T21:00:00+00:00",
+   "evaluated": false,
+   "prior_accesses": 0,
+   "sharpe": null,
+   "start": "2024-02-29T21:00:00+00:00"
+  },
+  "oos": {
+   "cagr": 0.07213146880401111,
+   "cost_drag_annual": 0.01215047365823696,
+   "max_drawdown": -0.1234174845510424,
+   "sharpe": 0.8458143660795483,
+   "turnover_annual": 1.1934413664511194
+  },
+  "run_id": "3277cb86-89fe-4288-918f-bf9a7cc32572",
+  "verdict": {
+   "checks": {
+    "beats_baseline_oos": true,
+    "dsr_above_0.95": false,
+    "no_sharp_peak": true,
+    "pbo_below_0.5": true
+   },
+   "survives": false
+  }
+ },
+ "xs_momentum/crypto": {
+  "generated_at": "2026-11-20T11:31:38.106632+00:00",
+  "headline": {
+   "baseline": "equal_weight_rebalanced",
+   "baseline_oos_sharpe": 0.6189641968830859,
+   "dsr": 0.6203695567097797,
+   "n_trials": 6,
+   "oos_cagr": 0.038557908916776906,
+   "oos_max_drawdown": -0.38264831185168136,
+   "oos_sharpe": 0.2785002169799489,
+   "pbo": 0.7204351204351205,
+   "psr_vs_zero": 0.6769854597026239,
+   "sharp_peak": false,
+   "sharpe_ci": [
+    -1.0378104076932075,
+    1.4864110830926813
+   ]
+  },
+  "holdout": {
+   "contaminated": false,
+   "end": "2026-11-01T00:00:00+00:00",
+   "evaluated": false,
+   "prior_accesses": 0,
+   "sharpe": null,
+   "start": "2024-11-17T04:00:00+00:00"
+  },
+  "oos": {
+   "cagr": 0.038557908916776906,
+   "cost_drag_annual": 0.025563114392210595,
+   "max_drawdown": -0.38264831185168136,
+   "sharpe": 0.2785002169799489,
+   "turnover_annual": 2.6425339366515836
+  },
+  "run_id": "7727814e-cb23-4780-adb8-42ff6f1e50d6",
+  "verdict": {
+   "checks": {
+    "beats_baseline_oos": false,
+    "dsr_above_0.95": false,
+    "no_sharp_peak": true,
+    "pbo_below_0.5": false
+   },
+   "survives": false
+  }
+ },
+ "xs_momentum/equities": {
+  "generated_at": "2026-11-20T11:32:03.711827+00:00",
+  "headline": {
+   "baseline": "equal_weight_rebalanced",
+   "baseline_oos_sharpe": 0.4613708697474427,
+   "dsr": 0.570388787696008,
+   "n_trials": 9,
+   "oos_cagr": 0.023026125536939057,
+   "oos_max_drawdown": -0.14960986521777364,
+   "oos_sharpe": 0.27653594388010566,
+   "pbo": 0.5952602952602952,
+   "psr_vs_zero": 0.6963266692993965,
+   "sharp_peak": false,
+   "sharpe_ci": [
+    -0.6748319711076277,
+    1.319618993367979
+   ]
+  },
+  "holdout": {
+   "contaminated": false,
+   "end": "2026-11-19T21:00:00+00:00",
+   "evaluated": false,
+   "prior_accesses": 0,
+   "sharpe": null,
+   "start": "2024-02-29T21:00:00+00:00"
+  },
+  "oos": {
+   "cagr": 0.023026125536939057,
+   "cost_drag_annual": 0.034017802109365336,
+   "max_drawdown": -0.14960986521777364,
+   "sharpe": 0.27653594388010566,
+   "turnover_annual": 5.077927513996514
+  },
+  "run_id": "1aa44495-baff-4c18-9996-fec3a2ef1400",
+  "verdict": {
+   "checks": {
+    "beats_baseline_oos": false,
+    "dsr_above_0.95": false,
+    "no_sharp_peak": true,
+    "pbo_below_0.5": false
+   },
+   "survives": false
+  }
+ }
+}

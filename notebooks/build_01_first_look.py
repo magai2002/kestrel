@@ -194,20 +194,19 @@ plt.show()
 md(
     """## 4. Buy-and-hold: SPY, and the Belgian stock-exchange tax (TOB)
 
-**Needs the equities sleeve's data, which needs a free Alpaca
-paper-account key (`docs/progress.md`).** The cells below check whether
-that data has been fetched yet (`make data-equities`) and run the real
-analysis if so; otherwise they print what's missing and move on — this
-notebook is designed to still run top to bottom either way, and to
-produce the real numbers automatically once the key is added and
-`make data-equities` has run, without needing to edit this notebook."""
+**Equities history comes from Yahoo's public chart endpoint** (no
+account needed; `make data-equities`, see
+`docs/adr/0004-ibkr-ucits-hybrid-data.md` for why not Alpaca, and why
+the bot *researches* on US ETFs like SPY but *trades* their UCITS twins
+through IBKR). The cells below still check the data exists first, so
+the notebook runs top to bottom on a fresh clone either way."""
 )
 
 code(
-    """spy = store.read_bars(data_dir, venue=Venue.ALPACA.value, symbol="SPY", timeframe=Timeframe.D1.value)
+    """spy = store.read_bars(data_dir, venue=Venue.YAHOO.value, symbol="SPY", timeframe=Timeframe.D1.value)
 HAVE_SPY = not spy.empty
 if not HAVE_SPY:
-    print("No SPY data in the store yet -- run `make data-equities` after adding Alpaca keys to .env.")
+    print("No SPY data in the store yet -- run `make data-equities` (no keys needed).")
 else:
     spy = spy.set_index("open_time").sort_index()
     spy_equity = (1.0 + spy["close"].pct_change().fillna(0.0)).cumprod()
@@ -287,13 +286,22 @@ md(
   the cost drag and break-even cost above show a meaningful bite into
   BTC trend-following's edge; see the printed numbers above for the
   specific magnitude on this data.
-- **SPY buy-and-hold and the TOB-on-mean-reversion story**: pending
-  Alpaca equities data (see Section 4 above) — rerun this notebook after
-  `make data-equities` to fill these in. The spec's own hypothesis
-  (Section 5, item 3) is that `ShortTermMeanReversion`'s edge, if any,
-  gets destroyed by Belgian TOB plus ordinary trading costs once
-  equities data is available to actually test it, which is exactly why
-  that strategy is never deployed past `sim`.
+- **SPY buy-and-hold (2016-2026)**: about +14% CAGR at ~18% vol, Sharpe
+  ~0.84, worst drawdown about -34% (COVID, 2020). Compare with BTC's
+  Sharpe ~0.94 at *three to four times* the volatility: similar
+  risk-adjusted return, wildly different ride.
+- **TOB on `ShortTermMeanReversion`**: it turns over roughly 10% of the
+  sleeve per day. Even the *cheapest* TOB rate (0.12%, distributing
+  funds) plus 2 bps of spread cuts its Sharpe from ~0.96 gross to ~0.59
+  net here. And that's before IBKR's per-order minimum commission,
+  which `kestrel validate` adds: there, at a $10,000 sleeve, its
+  walk-forward out-of-sample Sharpe goes negative. That is the spec's
+  hypothesis confirmed, and why this strategy never goes past `sim`.
+- *(Phase 3 note)* These outputs were regenerated after Phase 2 fixed a
+  look-ahead leak in `TrendVolTarget`'s forecast scalar. The Phase 1
+  notebook outputs had been produced by the leaky version (gross Sharpe
+  1.09 then, 0.97 now), which is a small, real example of how a leak
+  flatters a backtest.
 """
 )
 

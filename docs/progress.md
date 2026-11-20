@@ -1,5 +1,132 @@
 # Progress
 
+## Phase 3: Validation pipeline — done (hold-out deliberately still locked)
+
+`kestrel validate all --sleeve all` produces a full HTML + JSON report
+for all five strategies on both sleeves in under a minute
+(`reports/<run_id>/report.{html,json}`, plus `reports/summary.json`).
+Every piece of spec Section 7 is in: trial ledger, hold-out lock,
+walk-forward, DSR, PBO (CSCV), block bootstrap, 0–3× cost sensitivity,
+per-year and per-regime tables, parameter heatmap with a sharp-peak
+flag, before/after-buffering turnover. Method write-up for a non-quant
+reader: [validation-methodology.md](validation-methodology.md).
+
+### Scope change agreed before this phase: IBKR, UCITS twins, hybrid data
+
+See [ADR 0004](adr/0004-ibkr-ucits-hybrid-data.md). In short: no Alpaca;
+equities are **researched** on the ten US ETFs (Yahoo history, 2016+)
+and **traded** as their UCITS twins on the LSE through IBKR (EU retail
+can't buy US-domiciled ETFs). Distributing share classes were chosen
+where one exists, because the Belgian TOB on them is 0.12% instead of
+1.32%. Crypto is unchanged (Binance history and testnet, Kraken live).
+`config/sleeves/*.yaml` now models each asset as a logical id with a
+`research`, `live` and optional `sandbox` listing, plus per-asset costs
+and per-sleeve risk limits. These were previously hardcoded in `cli.py`.
+
+### The honest results (walk-forward out-of-sample, hold-out NOT yet evaluated)
+
+| Strategy | Sleeve | DSR | OOS Sharpe | Baseline OOS Sharpe | PBO | OOS CAGR | OOS max DD | Turnover/yr | Cost drag/yr | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| trend_vol_target | crypto | 0.70 | 0.44 | 0.35 (buy & hold) | 0.92 | +4.8% | −24.1% | 1.1 | 1.0% | fails: DSR, PBO |
+| trend_vol_target | equities | 0.87 | 0.85 | 0.75 (buy & hold) | 0.44 | +7.2% | −12.3% | 1.2 | 1.2% | fails: DSR |
+| xs_momentum | crypto | 0.62 | 0.28 | 0.62 (equal weight) | 0.72 | +3.9% | −38.3% | 2.6 | 2.6% | fails: DSR, PBO, baseline |
+| xs_momentum | equities | 0.57 | 0.28 | 0.46 (equal weight) | 0.60 | +2.3% | −15.0% | 5.1 | 3.4% | fails: DSR, PBO, baseline |
+| mean_reversion | crypto | 0.00 | −3.25 | 0.73 (buy & hold BTC) | 0.00 | −46.4% | −90.8% | 74.6 | 54.4% | fails: everything |
+| mean_reversion | equities | 0.22 | −0.19 | 0.75 (buy & hold SPY) | 0.70 | −0.5% | −3.4% | 5.9 | 1.9% | fails: DSR, PBO, baseline |
+| buy_and_hold | crypto | 0.96 | 0.89 | 0.86 | — | +43.3% | −71.9% | 0.2 | 0.2% | survives |
+| buy_and_hold | equities | 0.95 | 0.74 | 0.71 | — | +9.7% | −23.1% | 0.0 | 0.0% | fails: DSR (by a hair) |
+| equal_weight_rebalanced | crypto | 0.95 | 0.86 | 0.82 | — | +42.5% | −77.4% | 0.0 | 0.0% | survives |
+| equal_weight_rebalanced | equities | 0.94 | 0.72 | 0.71 | — | +9.3% | −23.1% | 0.0 | 0.0% | fails: DSR (by a hair) |
+
+Each strategy's baseline is measured over *its own* OOS period, which
+starts later for strategies with longer warm-up, so baseline numbers
+differ between rows.
+
+**What survives: nothing active.** Plainly:
+
+- **`trend_vol_target` on equities is the only candidate worth
+  watching.** It beat buy-and-hold out of sample (0.85 vs 0.75 Sharpe)
+  with half the drawdown (−12% vs −23%), the grid sits on a plateau
+  rather than a spike (no sharp peak) and PBO is 0.44, but DSR is 0.87,
+  short of the 0.95 bar. Four years of OOS data can't yet distinguish
+  it from a lucky draw of nine tries.
+- **`trend_vol_target` on crypto** cut the drawdown from about −72%
+  (buy-and-hold) to −24% and beat buy-and-hold over the same window. But
+  PBO is 0.92: the parameter set that wins in training is usually *not*
+  the one that wins next, so the specific speeds chosen mean little.
+- **Cross-sectional momentum** lost to plain equal-weighting on both
+  sleeves.
+- **Mean reversion** is the cost lesson the spec wanted it to be. On
+  equities it's +0.64 Sharpe at zero costs and −0.19 at real costs. On
+  crypto (4h bars, Kraken's 0.8% taker fee) it turns over 75× a year
+  and loses 54% a year to costs. It never goes past `sim`.
+- **The surviving "strategies" are the baselines.** Buy-and-hold BTC/ETH
+  over 2021–2024 was a strong period. Surviving here means "the
+  statistics say this wasn't luck", not "you should do this": its OOS
+  max drawdown was −72%.
+
+### Bugs and design problems found this phase (none hypothetical)
+
+1. **The whole `data/` Python package was never committed.**
+   `.gitignore` had `/data/` to exclude the Parquet store, but the store
+   lived *inside* the `data` package directory, so `data/store.py`,
+   `validate.py`, `calendars.py` and every source module were ignored
+   too. A fresh clone (and GitHub CI) couldn't import `data` at all.
+   Fixed: market data now lives in `market_data/` (the
+   `KESTREL_DATA_DIR` default) and `data/` is tracked.
+2. **`TrendVolTarget` targeted the sleeve's full 15% volatility on
+   *every* instrument**, so ten ETFs asked for several hundred percent
+   gross exposure. Now each instrument gets an equal share (`1/N`) of the
+   vol budget, with an `idm` (diversification multiplier) param left at
+   a conservative 1.0. Single-instrument results, and therefore the
+   golden hash, are unchanged.
+3. **Risk *rejecting* over-limit targets meant over-limit strategies
+   never traded at all.** A strategy asking for 130% gross got 0%, every
+   bar. New `portfolio/constraints.py` clips per-instrument weights and
+   scales groups and gross down *before* orders are built (in both the
+   event engine and the vectorized path). Pre-trade risk checks remain
+   the last-line guard and now only reject genuine anomalies. A new
+   hypothesis property test checks that constrained output always passes
+   the weight, group and gross checks.
+4. **The Phase 1 notebook outputs were stale**: produced *before* Phase
+   2's look-ahead fix, so they showed the leaky `TrendVolTarget` (gross
+   Sharpe 1.09 then, 0.97 now). Re-executed, and SPY and the TOB story
+   are now filled in with real data.
+5. **The vectorized backtester's buffer loop was pandas-per-row**, so one
+   crypto validation took ~6 minutes. Rewritten on numpy arrays with
+   identical semantics (a test checks it against the old loop). Now
+   ~10 s per strategy.
+
+### Judgment calls worth flagging
+
+- **The hold-out is still locked.** It can be evaluated exactly once per
+  strategy/sleeve (`kestrel validate <s> --sleeve <sl> --holdout`).
+  Several cost inputs are still unverified (below). If I spent the
+  hold-out now and you then corrected an IBKR fee, every later report
+  would be "contaminated" and the Phase 7 gate would refuse it forever.
+  **Your call when to unlock it.**
+- **Unverified cost inputs**, flagged in `config/sleeves/equities.yaml`
+  and printed in every report:
+  - IBKR LSE commission (tiered 0.05%, min USD 1.70, plus ~USD 0.21
+    exchange/clearing). This comes from a third-party summary, because
+    IBKR's own pricing page refuses automated fetches.
+  - Each twin's TOB rate: accumulating funds are assumed
+    Belgium-registered at 1.32%, and the IGLN ETC is assumed 0.12%.
+  - LSE spreads, which are estimates.
+- **DSR is applied to the stitched walk-forward OOS series** (with the
+  ledger's trial count and Sharpe variance), not the in-sample best.
+  That's the more conservative reading; documented in the methodology.
+- **Walk-forward doesn't charge the cost of switching parameter sets** at
+  a window boundary, and each segment starts already positioned. Both
+  are small and documented in `research/validation.py`.
+- **Yahoo data quality on the UCITS twins is mediocre**: one missing
+  session (2025-10-24) on most twins, plus 2026-03-06 on EQQU and IDEM;
+  many zero-volume days on the thin LSE USD lines (EQQU: 275). The US
+  research ETFs are clean. This only affects the twins' warm-up history
+  for the live runner; IBKR's own bars take over from Phase 4.
+
+---
+
 ## Phase 2: Event-driven engine, costs, sizing, risk checks — done
 
 Built straight after Phase 1 in the same session, per your go-ahead.

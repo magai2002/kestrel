@@ -1,4 +1,6 @@
-# Crypto sleeve (SPEC.md Section 3.1).
+# Crypto sleeve (SPEC.md Section 3.1). See config/sleeve.py for the
+# research/live/sandbox listing model.
+#
 # Universe: BTC and ETH are required. Add others only once they're
 # confirmed available on BOTH the Binance Spot Testnet and Kraken.
 name: crypto
@@ -6,34 +8,40 @@ asset_class: crypto
 decision_bar: 4h
 base_currency: USD # USDT is treated as USD; see docs/api-notes.md
 paper_capital: 10000
+periods_per_year_days: 365 # crypto trades every calendar day
+buffer_pct: 0.10
+bar_close_delay_seconds: 30
+regime_benchmark: BTC
 
-# Two venue entries per asset on purpose: Binance's public bulk-data
-# dump is the only source with deep history (back to 2019), but Kraken
-# is the intended live/sim venue (Section 3.3) and its REST OHLC
-# endpoint only ever returns the most recent 720 candles, so it can
-# never backfill 2019+. Phase 0 pulls both: Binance for history, Kraken
-# for a forward-looking cross-check. A single cross-venue "logical
-# instrument" identity (so the portfolio layer doesn't care which venue
-# a bar came from) is a Phase 2 concern once order routing needs it.
-universe:
-  - symbol: BTCUSDT
-    venue: binance
-    base_currency: BTC
-    quote_currency: USDT
-  - symbol: ETHUSDT
-    venue: binance
-    base_currency: ETH
-    quote_currency: USDT
-  # Dash, not slash: the Parquet store uses Hive-style partition
-  # directories (symbol=BTC-USD), and "/" can't appear in a directory
-  # name. ccxt_ohlcv.py converts back to ccxt's "BTC/USD" unified
-  # symbol at the API boundary; this spelling is the canonical one
-  # everywhere else (store, config, logs).
-  - symbol: BTC-USD
-    venue: kraken
-    base_currency: BTC
-    quote_currency: USD
-  - symbol: ETH-USD
-    venue: kraken
-    base_currency: ETH
-    quote_currency: USD
+assets:
+  - id: BTC
+    # Binance's public bulk dumps: the only free source back to 2019.
+    research: { venue: binance, symbol: BTCUSDT, base_currency: BTC, quote_currency: USDT }
+    # Kraken: sim prices + the live venue (MiCA-licensed; Section 3.3).
+    # Dash, not slash: Parquet partition dirs can't contain "/".
+    live: { venue: kraken, symbol: BTC-USD, base_currency: BTC, quote_currency: USD }
+    # Binance Spot Testnet: plumbing only, synthetic prices.
+    sandbox: { venue: binance_testnet, symbol: BTCUSDT, base_currency: BTC, quote_currency: USDT }
+    costs:
+      fee_pct: "0.0080" # Kraken entry-tier taker, verified Phase 2 (docs/api-notes.md)
+      spread_bps: "2"
+      slippage_k: "0.1"
+  - id: ETH
+    research: { venue: binance, symbol: ETHUSDT, base_currency: ETH, quote_currency: USDT }
+    live: { venue: kraken, symbol: ETH-USD, base_currency: ETH, quote_currency: USD }
+    sandbox: { venue: binance_testnet, symbol: ETHUSDT, base_currency: ETH, quote_currency: USDT }
+    costs:
+      fee_pct: "0.0080"
+      spread_bps: "3"
+      slippage_k: "0.1"
+
+risk:
+  per_instrument_weight_cap: 0.60
+  max_order_notional_pct: 0.30
+  price_band_pct: 0.02
+  daily_loss_limit_pct: 0.03 # spec default; see docs/progress.md Phase 2 note on how often this trips
+  drawdown_limit_pct: 0.20
+
+strategies:
+  - name: trend_vol_target
+    weight: 1.0

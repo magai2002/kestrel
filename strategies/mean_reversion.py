@@ -69,15 +69,17 @@ def _state_machine(
     value — hence a loop, not a vector op (same reasoning as
     ``research.vectorized.apply_buffer``).
     """
-    position = pd.Series(0.0, index=rsi_values.index)
+    values = rsi_values.to_numpy(dtype=float)
+    out = np.zeros(len(values))
     in_trade = False
-    for i, value in enumerate(rsi_values.to_numpy()):
+    for i, value in enumerate(values):
         if not in_trade and not np.isnan(value) and value < entry_threshold:
             in_trade = True
         elif in_trade and not np.isnan(value) and value > exit_threshold:
             in_trade = False
-        position.iloc[i] = 1.0 if in_trade else 0.0
-    return position
+        out[i] = 1.0 if in_trade else 0.0
+    # numpy array, not per-row Series.iloc writes: same answer, ~100x faster.
+    return pd.Series(out, index=rsi_values.index)
 
 
 def compute_weights(prices: pd.DataFrame, params: MeanReversionParams) -> pd.DataFrame:

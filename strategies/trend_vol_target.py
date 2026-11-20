@@ -43,6 +43,17 @@ The same volatility estimate (EWMA of returns, ``vol_span_days``,
 units *and* sizes the final vol-targeted position — one estimate, two
 uses, matching the spec's single mention of "volatility from an EWMA
 of returns" rather than a separate estimate per speed.
+
+**Instrument weights (Phase 3 fix).** The sleeve has *one* vol target,
+not one per instrument. Each instrument's vol-targeted position is
+multiplied by its instrument weight (equal, ``1/N``, by default) and an
+instrument diversification multiplier ``idm`` (default 1.0 — the
+conservative choice; Carver's IDM corrects for diversification making
+the combined sleeve less volatile than its parts, but we don't have a
+verified estimate and a too-high one levers the sleeve up). Phases 1-2
+targeted the full 15% on *every* instrument, which on the 10-ETF sleeve
+asks for several hundred percent gross exposure. The single-instrument
+case (and so the golden and parity tests) is unchanged: ``1/1 = 1``.
 """
 
 from __future__ import annotations
@@ -70,6 +81,8 @@ class TrendVolTargetParams(BaseModel):
     forecast_target: float = 10.0
     bars_per_day: float = 1.0  # 6 for 4h crypto, 1 for daily equities
     periods_per_year: float = 252.0  # 365*6 for crypto 4h, 252 for daily equities
+    instrument_weight: float | None = None  # None = 1/N across the columns given
+    idm: float = 1.0
 
     @field_validator("speeds_days")
     @classmethod
@@ -96,7 +109,9 @@ def _span_bars(days: float, bars_per_day: float) -> int:
     return max(2, round(days * bars_per_day))
 
 
-def _single_instrument_weight(price: pd.Series, params: TrendVolTargetParams) -> pd.Series:
+def _single_instrument_weight(
+    price: pd.Series, params: TrendVolTargetParams, instrument_weight: float = 1.0
+) -> pd.Series:
     vol_span = _span_bars(params.vol_span_days, params.bars_per_day)
     returns = price.pct_change()
     pct_vol = returns.ewm(span=vol_span, min_periods=vol_span).std()
@@ -132,7 +147,12 @@ def _single_instrument_weight(price: pd.Series, params: TrendVolTargetParams) ->
     # portfolio.sizing.vol_target_weight, not a duplicated formula.
     sized_weight = vol_target_weight(params.target_vol_annual, annualized_vol)
 
-    position_weight = (long_only_forecast / params.forecast_target) * sized_weight
+    position_weight = (
+        (long_only_forecast / params.forecast_target)
+        * sized_weight
+        * instrument_weight
+        * params.idm
+    )
     return position_weight.clip(0.0, 1.0).fillna(0.0)
 
 
@@ -142,8 +162,11 @@ def compute_weights(prices: pd.DataFrame, params: TrendVolTargetParams) -> pd.Da
     ``CrossSectionalMomentum``."""
     if prices.empty:
         return prices.copy()
+    iw = params.instrument_weight
+    if iw is None:
+        iw = 1.0 / len(prices.columns)
     return pd.DataFrame(
-        {col: _single_instrument_weight(prices[col], params) for col in prices.columns},
+        {col: _single_instrument_weight(prices[col], params, iw) for col in prices.columns},
         index=prices.index,
     )
 

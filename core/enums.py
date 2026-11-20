@@ -8,15 +8,19 @@ from enum import StrEnum
 class Venue(StrEnum):
     """Where a price or an order originates.
 
-    ``SIM`` is not a real venue: it labels bars synthesized by
-    resampling (e.g. 4h/1d bars derived from Binance 1h history) so the
-    Parquet partition records honestly that the bar did not come
-    straight off the wire.
+    ``BINANCE_TESTNET`` is its own venue, not a mode flag on ``BINANCE``:
+    testnet prices are synthetic and drift from the real market, so its
+    bars must never land in the same Parquet partition as real Binance
+    history. ``YAHOO`` is a data-only source (no orders); ``IBKR`` is
+    Interactive Brokers, the equities broker for paper and live (see
+    ``docs/adr/0004-ibkr-ucits-hybrid-data.md``).
     """
 
     BINANCE = "binance"
+    BINANCE_TESTNET = "binance_testnet"
     KRAKEN = "kraken"
-    ALPACA = "alpaca"
+    YAHOO = "yahoo"
+    IBKR = "ibkr"
 
 
 class AssetClass(StrEnum):

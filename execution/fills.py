@@ -26,9 +26,8 @@ from core.fill import Fill
 from core.order import Order, OrderSide
 from execution.costs import (
     CostModel,
-    belgian_tob,
-    commission,
     half_spread_price_adjustment,
+    order_cost,
     slippage_price_adjustment,
 )
 
@@ -78,9 +77,7 @@ def build_market_fill(
         return None
     fill_price = market_fill_price(open_price, order.side, bar_volatility, cost_model)
     notional = fill_price * fill_quantity
-    fee = commission(notional, cost_model.fee_pct) + belgian_tob(
-        notional, cost_model.tob_pct, cost_model.tob_cap
-    )
+    fee = order_cost(notional, cost_model)
     return Fill(
         client_order_id=order.client_order_id,
         instrument_id=order.instrument_id,
@@ -109,9 +106,7 @@ def build_passive_limit_fill(
     if fill_quantity <= 0:
         return None
     notional = limit_price * fill_quantity
-    fee = commission(notional, cost_model.fee_pct) + belgian_tob(
-        notional, cost_model.tob_pct, cost_model.tob_cap
-    )
+    fee = order_cost(notional, cost_model)
     return Fill(
         client_order_id=order.client_order_id,
         instrument_id=order.instrument_id,

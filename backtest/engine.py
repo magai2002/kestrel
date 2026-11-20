@@ -36,6 +36,7 @@ from core.reproducibility import git_sha, hash_config, hash_dataframe
 from execution.brokers.sim import SimBroker
 from execution.costs import CostModel
 from execution.order_manager import propose_orders
+from portfolio.constraints import constrain_weights
 from portfolio.construction import implied_weight, target_quantity
 from portfolio.sizing import should_trade
 from research import stats as stats_module
@@ -224,7 +225,9 @@ def run_backtest(
             for iid in instrument_ids
         }
         ctx = StrategyContext(history=history, now=bar_close_ts)
-        target_weights = strategy.on_bar(ctx)
+        # Clip/scale to the sleeve's limits *before* sizing, so risk only
+        # rejects genuine anomalies (portfolio/constraints.py docstring).
+        target_weights = constrain_weights(strategy.on_bar(ctx), risk_limits)
         events.append(
             Event(run_id, sleeve_name, EventType.TARGET, bar_close_ts, {"weights": target_weights})
         )

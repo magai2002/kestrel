@@ -19,13 +19,20 @@ make down            # docker compose down
 make migrate        # alembic upgrade head
 
 make data-crypto     # Binance 2019+ backfill (BTC/ETH) + Kraken cross-check; no keys needed
-make data-equities  # Alpaca daily ETF backfill; needs KESTREL_ALPACA_* in .env
+make data-equities  # Yahoo daily backfill: 10 US research ETFs + their UCITS twins; no keys needed
 make data-validate  # print a validation report for everything in the store
 make data             # all three, in order — Phase 0's "done when" check
 
 make sync-instruments  # fetch real tick/step/min-notional from Binance into the instruments table
 make backtest            # kestrel backtest trend_vol_target --sleeve crypto -- Phase 2's "done when" check
+make validate            # kestrel validate all --sleeve all -- Phase 3; writes reports/<run_id>/report.{html,json}
 ```
+
+**Never pass `--holdout` to `kestrel validate` casually.** Each
+strategy/sleeve's hold-out may be evaluated once; every access is
+recorded in Postgres (`holdout_access`) and a second one marks that
+strategy's reports "contaminated" forever, which the Phase 7 live
+gate refuses. Development runs go without the flag.
 
 Single test: `uv run pytest tests/unit/data/test_store.py -v`
 Single command directly: `uv run kestrel data validate`
@@ -34,11 +41,31 @@ Re-run the Phase 1 notebook (e.g. after `make data-equities` finally has
 SPY data) and commit the new outputs — don't hand-edit the `.ipynb`:
 
 ```sh
-uv sync --group notebooks   # jupyter/nbclient/matplotlib; not in the main dep list
-uv run jupyter execute --inplace notebooks/01_first_look.ipynb
+make notebook   # build cells -> ruff format the .ipynb -> jupyter execute --inplace
 ```
 
+(The format step matters: CI's `ruff format --check` covers notebooks,
+and formatting *before* executing keeps outputs matching the source.)
+
 ## Conventions
+
+- **Equities: research on US ETFs, trade UCITS twins via IBKR**
+  ([ADR 0004](docs/adr/0004-ibkr-ucits-hybrid-data.md)). There is no
+  Alpaca anywhere any more. A sleeve's assets are logical ids (`SPY`,
+  `BTC`) with `research` / `live` / `sandbox` listings
+  (`config/sleeve.py`); strategies, risk group caps and price panels
+  are keyed by **asset id**, never by venue instrument id.
+- **Market data lives in `market_data/`, not `data/`.** `data/` is the
+  Python package. Until Phase 3 the Parquet store sat inside it and
+  `.gitignore`'s `/data/` silently excluded the whole package from git.
+- **Build sleeve-derived inputs through `backtest/inputs.py`**
+  (prices aligned on one grid, instruments, cost models, strategy params
+  with `bars_per_day`/`periods_per_year` filled in), so `backtest`,
+  `validate` and the live shadow backtest can't drift apart.
+- **Target weights go through `portfolio/constraints.py` before orders**:
+  clip per instrument, scale groups and gross *down*. Pre-trade risk
+  checks are the last-line guard; if they reject a weight/group/gross
+  breach, something upstream skipped the constraint step.
 
 - **No module-level reads of `os.environ`.** One `Settings` object
   (`config/settings.py`, pydantic-settings) is constructed once per
@@ -128,13 +155,21 @@ uv run jupyter execute --inplace notebooks/01_first_look.ipynb
 - `data/sources/` — one module per venue/purpose, each returning the
   same unified bar schema (`data/__init__.py::BAR_COLUMNS`) except
   `binance_exchange_info.py` (reference data: tick/step/min-notional,
-  not bars).
+  not bars). `yahoo_chart.py` is the free equities backfill: equity
+  bars' `close_time` comes from the real exchange calendar
+  (`data/calendars.py::session_schedule`, early closes included), and
+  the still-trading session Yahoo returns is dropped.
 - `data/store.py` — Parquet (partitioned) + DuckDB reader.
 - `data/validate.py` — gap/duplicate/outlier/alignment checks +
   `ValidationReport`.
 - `research/` — `stats.py` (every metric, hand-tested), `vectorized.py`
   (the fast weights-to-returns backtester; see its docstring's
-  documented turnover-measurement limitation).
+  documented turnover-measurement limitation; `run_with_costs` is the
+  full-cost-model variant validation uses), `overfitting.py` (PSR, DSR,
+  PBO/CSCV, block bootstrap), `validation.py` (the Section 7 pipeline),
+  `ledger.py` (trial ledger + hold-out lock; `SqlLedger`/`InMemoryLedger`),
+  `tables.py` (per-year/regime), `report_html.py`. Grids and windows:
+  `config/validation.yaml`.
 - `strategies/` — `base.py` (the `Strategy` protocol + convention every
   other module here follows), one module per strategy
   (`trend_vol_target.py`, `xs_momentum.py`, `mean_reversion.py`,

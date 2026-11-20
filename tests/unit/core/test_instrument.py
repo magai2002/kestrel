@@ -7,14 +7,14 @@ from core.instrument import Instrument
 
 def test_instrument_id_combines_venue_and_symbol() -> None:
     inst = Instrument(
-        venue=Venue.ALPACA,
+        venue=Venue.IBKR,
         symbol="SPY",
         asset_class=AssetClass.EQUITY,
         base_currency="SPY",
         quote_currency="USD",
     )
-    assert inst.instrument_id == "alpaca:SPY"
-    assert str(inst) == "alpaca:SPY"
+    assert inst.instrument_id == "ibkr:SPY"
+    assert str(inst) == "ibkr:SPY"
 
 
 def test_rejects_empty_symbol() -> None:
