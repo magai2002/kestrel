@@ -148,6 +148,22 @@ def test_public_app_hides_its_docs_and_404s_unknown_api_paths(tmp_path: Path) ->
     assert with_docs.get("/api/openapi.json").status_code == 200
 
 
+def test_head_answers_like_get_without_a_body(tmp_path: Path) -> None:
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "app.js").write_text("console.log(1)")
+    (tmp_path / "index.html").write_text("<!doctype html><div id=root></div>")
+    client = TestClient(create_public_app(lambda: None, web_dist=tmp_path))  # type: ignore[arg-type,return-value]
+    for path in ("/", "/how", "/assets/app.js", "/api/healthz"):
+        get, head = client.get(path), client.head(path)
+        assert head.status_code == get.status_code == 200, path
+        assert head.content == b"", path
+        assert head.headers["content-length"] == get.headers["content-length"], path
+        assert head.headers["content-type"] == get.headers["content-type"], path
+    assert client.head("/api/nope").status_code == 404
+    assert client.head("/api/stream").status_code == 405  # would hold a connection open for nothing
+    assert client.post("/").status_code == 405  # still read-only
+
+
 def test_live_stream_connections_are_capped() -> None:
     client = TestClient(create_public_app(lambda: None, max_streams=0))  # type: ignore[arg-type,return-value]
     assert client.get("/api/stream").status_code == 503

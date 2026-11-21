@@ -79,6 +79,34 @@ def _next_decision(sleeve: str, mode: str, now: datetime) -> str | None:
         return None
 
 
+class HeadAsGet:
+    """Answer ``HEAD`` like ``GET`` with the body dropped (RFC 9110 9.3.2).
+
+    FastAPI's ``@get`` routes only accept GET, so uptime checkers and
+    ``curl -I`` got 405 on ``/`` and every API path. The handler sees a GET;
+    status and headers (``Content-Length`` included) are the GET's. The
+    endpoints are read-only, so a HEAD costs exactly what a GET does, and
+    the rate limiter counts it the same. ``skip`` paths keep their 405: a
+    HEAD on the SSE stream would hold a connection open to send nothing.
+    """
+
+    def __init__(self, app: Any, skip: tuple[str, ...] = ()) -> None:
+        self.app = app
+        self.skip = skip
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http" or scope["method"] != "HEAD" or scope["path"] in self.skip:
+            await self.app(scope, receive, send)
+            return
+
+        async def send_headers_only(message: Any) -> None:
+            if message["type"] == "http.response.body":
+                message = {**message, "body": b""}
+            await send(message)
+
+        await self.app({**scope, "method": "GET"}, receive, send_headers_only)
+
+
 def create_public_app(
     session_factory: SessionFactory,
     web_dist: Path | None = None,
@@ -98,6 +126,7 @@ def create_public_app(
         openapi_url="/api/openapi.json" if docs else None,
         redoc_url=None,
     )
+    app.add_middleware(HeadAsGet, skip=("/api/stream",))
     app.add_middleware(RateLimitMiddleware, bucket=TokenBucket(rate_per_second, burst))
     db = _session_dep(session_factory)
     r = APIRouter(prefix="/api")
