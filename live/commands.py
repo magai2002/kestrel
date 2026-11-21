@@ -216,6 +216,21 @@ def reset_kill_switch(
             typer.echo(f"{mode}/{sleeve}/{name} was not tripped")
 
 
+@admin_app.command("ensure-public-role")
+def ensure_public_role_cmd() -> None:
+    """Create/refresh the SELECT-only Postgres role the public API uses
+    (api/db_role.py). Idempotent; the prod `migrate` service runs it after
+    every `alembic upgrade head` so grants follow the schema."""
+    from api.db_role import PUBLIC_ROLE, ensure_public_role
+
+    settings = Settings()
+    if settings.public_db_password is None:
+        raise typer.BadParameter("set KESTREL_PUBLIC_DB_PASSWORD (deploy/.env in prod)")
+    with create_engine(settings.postgres_dsn).begin() as conn:
+        ensure_public_role(conn, settings.public_db_password.get_secret_value())
+    typer.echo(f"{PUBLIC_ROLE}: SELECT-only grants refreshed")
+
+
 @admin_app.command("rebaseline")
 def rebaseline_cmd(
     mode: str = typer.Option(..., "--mode"), sleeve: str = typer.Option(..., "--sleeve")

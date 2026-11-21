@@ -1,5 +1,16 @@
 # Progress
 
+## After Phase 7: hardening the public dashboard (ADR 0008)
+
+Decision: the dashboard stays public (it shows no money amounts), so
+instead of a login the work went into what a compromised public process
+could reach. Before this, the `api` container had the engine's full
+`.env` (future broker keys) and the Postgres owner role, a superuser. Now
+it has no secrets, no volumes, a read-only filesystem and a SELECT-only
+role on 8 named tables; Nginx adds GET-only, request/connection limits,
+HSTS, a strict CSP and hides its version; Swagger is off. Details and
+what was deliberately not done: [ADR 0008](adr/0008-public-dashboard-hardening.md).
+
 ## After Phase 7: the Decisions page, and an xs_momentum timing bug
 
 ### What's built

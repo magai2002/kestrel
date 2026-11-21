@@ -33,6 +33,9 @@ x-engine: &engine
     migrate:
       condition: service_completed_successfully
   mem_limit: 512m
+  # Plain Python as uid 10001: no Linux capabilities, no setuid escalation.
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
   healthcheck:
     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9710/metrics', timeout=3)"]
     interval: 30s
@@ -63,8 +66,13 @@ services:
   migrate:
     <<: *engine
     restart: "no"
-    entrypoint: ["alembic"]
-    command: ["upgrade", "head"]
+    # Schema first, then re-grant the public API's SELECT-only role so its
+    # grants follow the schema (api/db_role.py).
+    entrypoint: ["sh", "-c", "alembic upgrade head && kestrel admin ensure-public-role"]
+    command: []
+    environment:
+      <<: *engine-env
+      KESTREL_PUBLIC_DB_PASSWORD: ${KESTREL_PUBLIC_DB_PASSWORD:?set KESTREL_PUBLIC_DB_PASSWORD in deploy/.env}
     depends_on:
       postgres:
         condition: service_healthy
@@ -117,21 +125,40 @@ services:
 
   # Public read-only API + dashboard. Host Nginx proxies the subdomain to
   # 127.0.0.1:8710 (deploy/nginx/kestrel.conf). Never the admin app.
+  #
+  # The only container the internet can reach, so it is deliberately NOT
+  # built from the *engine anchor: no env_file (no broker keys, ntfy token
+  # or admin token), no data volumes, a SELECT-only database role, and a
+  # read-only filesystem. A bug in this process should find nothing worth
+  # stealing and nothing it can change (docs/adr/0008).
   api:
-    <<: *engine
+    image: kestrel:${KESTREL_IMAGE_TAG:-local}
+    restart: unless-stopped
     command: ["api", "--role", "public", "--host", "0.0.0.0", "--port", "8710"]
     environment:
-      <<: *engine-env
+      KESTREL_POSTGRES_DSN: postgresql+psycopg://kestrel_public:${KESTREL_PUBLIC_DB_PASSWORD:?set KESTREL_PUBLIC_DB_PASSWORD in deploy/.env}@postgres:5432/kestrel
       KESTREL_TRUSTED_PROXIES: "127.0.0.1/32,172.16.0.0/12"
+      KESTREL_LOG_JSON: "true"
     ports:
       - "127.0.0.1:8710:8710"
+    read_only: true
+    tmpfs: ["/tmp:size=16m,noexec,nosuid"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
     mem_limit: 256m
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8710/api/healthz', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
 
   # Admin API (ADR 0006): loopback-only port, never proxied, token required.
   # Reach it from your laptop with: ssh -L 8711:127.0.0.1:8711 <server>

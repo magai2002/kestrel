@@ -64,11 +64,17 @@ def create_public_app(
     rate_per_second: float = 2.0,
     burst: int = 40,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    docs: bool = False,
+    max_streams: int = 50,
 ) -> FastAPI:
+    """``docs`` serves Swagger at ``/api/docs`` (off in production: it maps
+    the attack surface for free). ``max_streams`` caps concurrent
+    ``/api/stream`` connections across all clients; each holds a coroutine
+    and a database query every few seconds."""
     app = FastAPI(
         title="kestrel public API",
-        docs_url="/api/docs",
-        openapi_url="/api/openapi.json",
+        docs_url="/api/docs" if docs else None,
+        openapi_url="/api/openapi.json" if docs else None,
         redoc_url=None,
     )
     app.add_middleware(RateLimitMiddleware, bucket=TokenBucket(rate_per_second, burst))
@@ -137,12 +143,27 @@ def create_public_app(
         _check(sleeve, mode)
         return queries.metrics(s, sleeve, mode, _periods_per_year(sleeve))
 
+    open_streams = [0]
+
     @r.get("/stream")
     async def stream(interval: float = Query(15.0, ge=5.0, le=120.0)) -> StreamingResponse:
         """Server-sent events: ``status`` every ``interval`` s, plus a
         ``fill`` event whenever new fills appear."""
+        if open_streams[0] >= max_streams:
+            raise HTTPException(503, "too many live connections; the page still polls")
 
         async def events() -> AsyncIterator[str]:
+            # Counted from the first iteration, so a client that drops before
+            # the body starts can't leak a slot (an unstarted generator never
+            # runs its finally).
+            open_streams[0] += 1
+            try:
+                async for chunk in _events():
+                    yield chunk
+            finally:
+                open_streams[0] -= 1
+
+        async def _events() -> AsyncIterator[str]:
             last_fill = -1
             while True:
                 s = session_factory()
@@ -175,6 +196,8 @@ def create_public_app(
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str) -> FileResponse:
+            if path == "api" or path.startswith("api/"):
+                raise HTTPException(404, "not found")  # unknown API path, not the dashboard
             candidate = (web_dist / path).resolve()
             if path and candidate.is_file() and web_dist.resolve() in candidate.parents:
                 return FileResponse(candidate)

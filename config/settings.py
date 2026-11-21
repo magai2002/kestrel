@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     admin_token: SecretStr | None = None
     # Comma-separated CIDRs whose X-Forwarded-For the public API trusts.
     trusted_proxies: str = "127.0.0.1/32,::1/128"
+    # Password for the SELECT-only Postgres role the public API connects as
+    # (api/db_role.py). Set by `kestrel admin ensure-public-role`; in prod
+    # it comes from deploy/.env and the public container gets nothing else.
+    public_db_password: SecretStr | None = None
 
     # --- misc ---
     log_level: str = "INFO"

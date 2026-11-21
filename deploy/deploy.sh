@@ -13,6 +13,13 @@ COMPOSE=(docker compose -f deploy/docker-compose.prod.yml)
 for p in ${KESTREL_PROFILES:-}; do COMPOSE+=(--profile "$p"); done
 
 git pull --ff-only
+
+# The public API's SELECT-only DB role needs its own password (docs/adr/0008).
+if ! grep -q '^KESTREL_PUBLIC_DB_PASSWORD=' deploy/.env; then
+  echo "KESTREL_PUBLIC_DB_PASSWORD=$(openssl rand -hex 32)" >> deploy/.env
+  chmod 600 deploy/.env
+  echo "generated KESTREL_PUBLIC_DB_PASSWORD in deploy/.env"
+fi
 if [[ "${KESTREL_IMAGE_TAG:-local}" == "local" ]]; then
   "${COMPOSE[@]}" build
 else

@@ -119,6 +119,12 @@ and formatting *before* executing keeps outputs matching the source.)
   weights %, bps). Never cash, quantities, notionals, fees in currency or
   account ids; `tests/unit/api/test_api.py` seeds such values and greps
   for leaks. Admin is a *separate app* on a loopback port (ADR 0006).
+- **The public `api` container holds nothing worth stealing** (ADR 0008):
+  no `env_file`, no volumes, read-only filesystem, and the SELECT-only
+  `kestrel_public` Postgres role (`api/db_role.py`). Never build it from
+  the `*engine` anchor or give it the owner DSN. A query in
+  `api/queries.py` on a new table must add that model to `PUBLIC_TABLES`
+  (`tests/unit/live/test_public_role.py` fails otherwise).
 - **Target weights go through `portfolio/constraints.py` before orders**:
   clip per instrument, scale groups and gross *down*. Pre-trade risk
   checks are the last-line guard; if they reject a weight/group/gross

@@ -29,6 +29,24 @@ from research.tables import clean
 
 MODES = ("sim", "sandbox", "live")
 
+# Every table this module reads, and the only ones the public API's
+# Postgres role may SELECT (api/db_role.py). Reading a new table here
+# means adding its model to this tuple; tests/unit/api/test_public_role.py
+# runs every endpoint as that role and fails otherwise.
+PUBLIC_TABLES: tuple[str, ...] = tuple(
+    str(m.__tablename__)
+    for m in (
+        BacktestRunRecord,
+        EquitySnapshotRecord,
+        EventLogRecord,
+        FillRecord,
+        KillSwitchRecord,
+        PositionsSnapshotRecord,
+        SleeveStateRecord,
+        ValidationReportRecord,
+    )
+)
+
 
 def status(s: Session, now: datetime) -> list[dict[str, Any]]:
     out = []

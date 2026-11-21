@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -132,3 +133,21 @@ def test_rate_limit_returns_429(fresh_db: Any) -> None:
     client = TestClient(create_public_app(_seed(fresh_db), rate_per_second=0.001, burst=3))
     codes = [client.get("/api/healthz").status_code for _ in range(5)]
     assert codes[:3] == [200, 200, 200] and codes[-1] == 429
+
+
+def test_public_app_hides_its_docs_and_404s_unknown_api_paths(tmp_path: Path) -> None:
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<!doctype html><div id=root></div>")
+    client = TestClient(create_public_app(lambda: None, web_dist=tmp_path))  # type: ignore[arg-type,return-value]
+    for path in ("/api/docs", "/api/openapi.json", "/api/nope", "/api"):
+        resp = client.get(path)
+        assert resp.status_code == 404, path
+        assert "<!doctype" not in resp.text  # an API 404, not the dashboard shell
+    assert client.get("/decisions").text.startswith("<!doctype")  # client-side routes still work
+    with_docs = TestClient(create_public_app(lambda: None, docs=True))  # type: ignore[arg-type,return-value]
+    assert with_docs.get("/api/openapi.json").status_code == 200
+
+
+def test_live_stream_connections_are_capped() -> None:
+    client = TestClient(create_public_app(lambda: None, max_streams=0))  # type: ignore[arg-type,return-value]
+    assert client.get("/api/stream").status_code == 503
