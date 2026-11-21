@@ -164,6 +164,22 @@ def test_head_answers_like_get_without_a_body(tmp_path: Path) -> None:
     assert client.post("/").status_code == 405  # still read-only
 
 
+def test_html_shell_is_revalidated_and_hashed_assets_are_immutable(tmp_path: Path) -> None:
+    # A stale cached shell names a bundle the last deploy deleted -> blank page.
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "index-abc123.js").write_text("console.log(1)")
+    (tmp_path / "index.html").write_text("<!doctype html><div id=root></div>")
+    (tmp_path / "favicon.svg").write_text("<svg/>")
+    client = TestClient(create_public_app(lambda: None, web_dist=tmp_path))  # type: ignore[arg-type,return-value]
+    for path in ("/", "/strategies", "/trades", "/index.html"):
+        assert client.get(path).headers["cache-control"] == "no-cache", path
+    assert "immutable" in client.get("/assets/index-abc123.js").headers["cache-control"]
+    assert client.get("/favicon.svg").headers["cache-control"] == "public, max-age=3600"
+    gone = client.get("/assets/index-gone.js")  # a 404 must not be cached either
+    assert gone.status_code == 404
+    assert "cache-control" not in gone.headers
+
+
 def test_live_stream_connections_are_capped() -> None:
     client = TestClient(create_public_app(lambda: None, max_streams=0))  # type: ignore[arg-type,return-value]
     assert client.get("/api/stream").status_code == 503

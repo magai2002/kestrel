@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StrictMode, useEffect } from "react";
+import { Component, type ReactNode, StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { StatusStrip } from "./components/StatusStrip";
@@ -42,6 +42,49 @@ function NotFound() {
   );
 }
 
+/** One page failing to render must not blank the whole app (React unmounts
+ * everything on an uncaught render error). Keyed by path, so navigating away
+ * clears it. */
+class PageBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error) {
+    console.error("page failed to render", error);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <section className="panel" role="alert">
+        <h2>This page failed to load</h2>
+        <p className="mute">
+          Usually a newer version of the site was deployed while this tab was open.{" "}
+          <button onClick={() => window.location.reload()}>reload</button>
+        </p>
+        <p className="mute small">{String(this.state.error.message || this.state.error)}</p>
+      </section>
+    );
+  }
+}
+
+function Pages() {
+  const { pathname } = useLocation();
+  return (
+    <PageBoundary key={pathname}>
+      <Routes>
+        <Route path="/" element={<Overview />} />
+        <Route path="/decisions" element={<Decisions />} />
+        <Route path="/trades" element={<Trades />} />
+        <Route path="/strategies" element={<Strategies />} />
+        <Route path="/tracking" element={<Tracking />} />
+        <Route path="/how" element={<HowItWorks />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </PageBoundary>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -65,15 +108,7 @@ function App() {
       </header>
       <main id="main">
         <StatusStrip />
-        <Routes>
-          <Route path="/" element={<Overview />} />
-          <Route path="/decisions" element={<Decisions />} />
-          <Route path="/trades" element={<Trades />} />
-          <Route path="/strategies" element={<Strategies />} />
-          <Route path="/tracking" element={<Tracking />} />
-          <Route path="/how" element={<HowItWorks />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <Pages />
       </main>
       <footer>
         <b>Paper trading. Not financial advice.</b> Educational project ·{" "}

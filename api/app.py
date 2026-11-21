@@ -107,6 +107,25 @@ class HeadAsGet:
         await self.app({**scope, "method": "GET"}, receive, send_headers_only)
 
 
+# The HTML shell must be revalidated on every load (it is under 1 kB):
+# it names this build's hashed bundle, and a deploy deletes the previous
+# one. Without a Cache-Control the browser guesses a freshness from
+# Last-Modified (10% of the file's age), keeps a stale shell per URL, asks
+# for a bundle that no longer exists, and renders an empty dark page until
+# a manual refresh. Hashed assets are the opposite: a new build means a new
+# name, so they can be cached forever.
+HTML_CACHE = "no-cache"
+ASSET_CACHE = "public, max-age=31536000, immutable"
+ROOT_FILE_CACHE = "public, max-age=3600"  # favicon etc.: unhashed, rarely change
+
+
+class _HashedAssets(StaticFiles):
+    def file_response(self, *args: Any, **kwargs: Any) -> Any:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = ASSET_CACHE
+        return response
+
+
 def create_public_app(
     session_factory: SessionFactory,
     web_dist: Path | None = None,
@@ -246,7 +265,7 @@ def create_public_app(
     app.include_router(r)
 
     if web_dist is not None and (web_dist / "index.html").exists():
-        app.mount("/assets", StaticFiles(directory=web_dist / "assets"), name="assets")
+        app.mount("/assets", _HashedAssets(directory=web_dist / "assets"), name="assets")
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str) -> FileResponse:
@@ -254,8 +273,10 @@ def create_public_app(
                 raise HTTPException(404, "not found")  # unknown API path, not the dashboard
             candidate = (web_dist / path).resolve()
             if path and candidate.is_file() and web_dist.resolve() in candidate.parents:
-                return FileResponse(candidate)
-            return FileResponse(web_dist / "index.html")  # client-side routes
+                cache = HTML_CACHE if candidate.suffix == ".html" else ROOT_FILE_CACHE
+                return FileResponse(candidate, headers={"Cache-Control": cache})
+            # client-side routes: every URL (/strategies, /trades...) is its own cache entry
+            return FileResponse(web_dist / "index.html", headers={"Cache-Control": HTML_CACHE})
 
     return app
 
