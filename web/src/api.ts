@@ -12,6 +12,8 @@ export interface SleeveStatus {
   paused: boolean;
   kill_switches: Record<string, { tripped: boolean; since: string | null }>;
   last_reconciliation: { at: string; ok: boolean } | null;
+  /** When the runner next acts (bar close + publication delay), ISO UTC. */
+  next_decision?: string | null;
 }
 
 export interface Status {
@@ -32,6 +34,7 @@ export interface Positions {
   mode: string;
   as_of: string;
   weights_pct: Record<string, number>;
+  prices?: Record<string, number>;
 }
 
 export interface Trade {

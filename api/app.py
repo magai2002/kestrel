@@ -17,7 +17,8 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Callable, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -52,10 +53,30 @@ def _check(sleeve: str | None = None, mode: str | None = None) -> None:
         raise HTTPException(404, f"unknown mode {mode!r}")
 
 
-def _periods_per_year(sleeve: str) -> float:
+@lru_cache(maxsize=8)
+def _sleeve(name: str) -> Any:
     from config.sleeve import load_sleeve
 
-    return load_sleeve(sleeve).periods_per_year
+    return load_sleeve(name)
+
+
+def _periods_per_year(sleeve: str) -> float:
+    return float(_sleeve(sleeve).periods_per_year)
+
+
+def _next_decision(sleeve: str, mode: str, now: datetime) -> str | None:
+    """When the runner will next act for this sleeve: the next bar close
+    plus the sleeve's publication delay, on the runner's own schedule
+    (live/runner.py::_slot). Display only; never raises."""
+    from live.schedule import next_bar_close
+
+    try:
+        cfg = _sleeve(sleeve)
+        delay = timedelta(seconds=cfg.bar_close_delay_seconds)
+        calendar = cfg.asset(cfg.asset_ids[0]).listing_for(mode).calendar
+        return (next_bar_close(now - delay, cfg.decision_bar, calendar) + delay).isoformat()
+    except Exception:
+        return None
 
 
 def create_public_app(
@@ -83,9 +104,13 @@ def create_public_app(
 
     @r.get("/status")
     def status(s: Session = Depends(db)) -> dict[str, Any]:
+        now = clock()
+        sleeves = queries.status(s, now)
+        for row in sleeves:
+            row["next_decision"] = _next_decision(row["sleeve"], row["mode"], now)
         return {
-            "as_of": clock().isoformat(),
-            "sleeves": queries.status(s, clock()),
+            "as_of": now.isoformat(),
+            "sleeves": sleeves,
             "disclaimer": "Paper trading. Not financial advice.",
         }
 

@@ -1,4 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { api, fmt } from "../api";
 import { LineChart } from "../components/LineChart";
 
@@ -31,7 +32,12 @@ export function Overview() {
         return (
           <section key={sleeve} className="panel">
             <div className="panel-head">
-              <h2>{sleeve}</h2>
+              <h2>
+                {sleeve}{" "}
+                <Link className="why-link" to={`/decisions?sleeve=${sleeve}`}>
+                  why these positions? →
+                </Link>
+              </h2>
               <div className="tiles">
                 <div>
                   <span>index</span>
@@ -56,11 +62,19 @@ export function Overview() {
                     : []),
                 ]}
               />
+            ) : equity[i * 2]?.isLoading ? (
+              <div className="skeleton" style={{ height: 260 }} />
             ) : (
               <p className="mute">Waiting for the first few bars of live history…</p>
             )}
             {sim && sim.drawdown_pct.length > 1 && (
               <LineChart height={120} percent series={[{ name: "drawdown", points: sim.drawdown_pct, color: "#e06a5a" }]} />
+            )}
+            {w && Object.values(w.weights_pct).every((x) => x === 0) && (
+              <p className="mute small">
+                Fully in cash right now: no asset has a strong enough signal to hold.{" "}
+                <Link to={`/how?sleeve=${sleeve}`}>See exactly why</Link>.
+              </p>
             )}
             {w && (
               <div className="weights">

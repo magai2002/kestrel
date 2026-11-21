@@ -1,5 +1,26 @@
 # Progress
 
+## After Phase 7: an interactive "How it works", and dashboard UX
+
+- **How it works** is now an interactive diagram of one cycle, drawn as the
+  loop it is (new bar → settle → kill switches → strategy → limits → buffer
+  → orders → risk → execute → next bar). Pick a sleeve and an asset; every
+  step shows the numbers from the latest real decision trace: the trend
+  forecast at each speed and the sizing formula with live values, the cap
+  that bound (if any), the buffer band with a "try a different target"
+  slider, the order and which risk checks it faced, the six kill switches.
+  A walk-through button animates a token around the loop.
+- `/api/status` gains `next_decision` (the runner's own schedule:
+  `live/schedule.py` + the sleeve's publication delay), so the status bar
+  shows "next decision in 3h 12m"; each status pill links to that sleeve's
+  decisions.
+- Smaller: sticky header, horizontally scrolling nav on phones, page titles,
+  a 404 page, favicon, loading skeletons, keyboard focus rings and a skip
+  link, `prefers-reduced-motion` respected, Overview explains an all-cash
+  sleeve and links to the reason.
+- Not verified in a real browser (none on the VPS, and too little free RAM
+  to run one safely): type-checked and built only.
+
 ## After Phase 7: hardening the public dashboard (ADR 0008)
 
 Decision: the dashboard stays public (it shows no money amounts), so

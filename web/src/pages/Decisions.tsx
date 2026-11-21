@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   api,
   fmt,
@@ -14,30 +14,13 @@ import {
   type TrendAsset,
 } from "../api";
 import { LineChart } from "../components/LineChart";
+import { Meter } from "../components/Meter";
 
 const SLEEVES = ["crypto", "equities"] as const;
 const MODES = ["sim", "sandbox"] as const;
 const label = (s: string) => s.replaceAll("_", " ");
 const time = (t: string | undefined | null) =>
   t ? new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
-
-/** A limit and how much of it is used: green < 60%, amber < 90%, red beyond. */
-function Meter({ name, used, text, limit, hint }: { name: string; used: number | null; text: string; limit: string; hint?: string }) {
-  const u = used == null || Number.isNaN(used) ? 0 : Math.max(0, Math.min(1, used));
-  const tone = u >= 0.9 ? "bad" : u >= 0.6 ? "warn" : "good";
-  return (
-    <div className="meter" title={hint}>
-      <div className="meter-head">
-        <span>{name}</span>
-        <b>{text}</b>
-      </div>
-      <div className="bar">
-        <i className={tone} style={{ width: `${u * 100}%` }} />
-      </div>
-      <small className="mute">limit {limit}</small>
-    </div>
-  );
-}
 
 function RiskPanel({ risk, tripped }: { risk: RiskTrace; tripped: string[] }) {
   const loss = Math.max(0, -risk.daily_pnl.value);
@@ -408,7 +391,7 @@ export function Decisions() {
       <p className="lede">
         Why the bot holds what it holds: each cycle's full decision, from raw prices through the strategies' signals,
         the sleeve's limits and the trading buffer to the orders and risk checks. Weights are fractions of the sleeve,
-        so no balances are shown.
+        so no balances are shown. New here? <Link to="/how">See how the pipeline works</Link>.
       </p>
       <div className="filters decisions-bar">
         <div className="tabs" role="tablist">

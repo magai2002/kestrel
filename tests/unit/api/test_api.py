@@ -151,3 +151,16 @@ def test_public_app_hides_its_docs_and_404s_unknown_api_paths(tmp_path: Path) ->
 def test_live_stream_connections_are_capped() -> None:
     client = TestClient(create_public_app(lambda: None, max_streams=0))  # type: ignore[arg-type,return-value]
     assert client.get("/api/stream").status_code == 503
+
+
+def test_status_says_when_the_runner_next_acts() -> None:
+    from api.app import _next_decision
+
+    # crypto: 4h UTC grid + 30 s publication delay; before the delay has passed
+    # the current bar's action is still ahead.
+    at = datetime(2026, 11, 21, 20, 0, 10, tzinfo=UTC)
+    assert _next_decision("crypto", "sim", at) == "2026-11-21T20:00:30+00:00"
+    assert _next_decision("crypto", "sim", at + timedelta(minutes=1)) == "2026-11-22T00:00:30+00:00"
+    # equities: Saturday -> Monday's LSE close (16:30 UTC) + 15 min
+    assert _next_decision("equities", "sim", at) == "2026-11-23T16:45:00+00:00"
+    assert _next_decision("nope", "sim", at) is None  # display only: never raises

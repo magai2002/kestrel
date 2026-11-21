@@ -269,6 +269,10 @@ and formatting *before* executing keeps outputs matching the source.)
   `ratelimit.py` (token bucket; X-Forwarded-For only from trusted CIDRs).
 - `web/` — React + Vite + TS dashboard (TanStack Query, Lightweight
   Charts): Overview, Decisions, Trades, Strategies, Live vs backtest, How it works.
+  How it works is `components/PipelineExplorer.tsx`: the nine-step cycle as a
+  loop diagram, each step fed by the latest decision trace (it presents, never
+  recomputes; the buffer slider is a labelled what-if). Its step order mirrors
+  `live/sleeve_runner.py::run_cycle`; change one, change the other.
   Built inside the Dockerfile's `web` stage.
 - `live/trace.py` — per-cycle `decision` event (strategy internals ->
   limits -> buffer -> orders -> risk headroom) -> `/api/decisions` ->
